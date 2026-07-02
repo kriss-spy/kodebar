@@ -1,0 +1,3 @@
+# Backend written in Rust
+
+The backend is written in Rust, not Python or Go. Python had the most prior art in this domain (gemini-cli-usage, opencode-usage, llm-usage-metrics); Go is what OpenCode itself is written in. We chose Rust because the backend is a long-lived service that manages OAuth token refresh, probes undocumented provider APIs, and writes a cache file — a profile that benefits most from a single static binary (no runtime dependency, cleanest packaging for AUR/Fedora/Flatpak) and compile-time type safety around token/credential handling. The prototyping-speed concern is manageable since the logic is straightforward HTTP + JSON + file I/O.

@@ -1,6 +1,6 @@
-# CodexBarKDE
+# Kodebar
 
-> Native KDE Plasma widget for tracking AI provider usage/quota — Linux-first, built on the upstream [`codexbar`](https://github.com/steipete/CodexBar) CLI.
+> Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
 **Status:** Pre-M1 (design/PRD phase, no code yet).
 
@@ -8,57 +8,62 @@
 
 ## Why
 
-[CodexBar](https://github.com/steipete/CodexBar) tracks usage/quota/reset windows across 40+ AI coding providers (Codex, Claude, Copilot, Gemini, …), but it is a **macOS menu-bar app**. The bundled Linux CLI is limited:
+[OpenCode](https://opencode.ai) supports 75+ LLM providers (Gemini, Claude, GPT, OpenCode Zen/Go, …), but there is **no Linux-native usage tracker** for the OpenCode ecosystem. [opencode-bar](https://github.com/opgginc/opencode-bar) solves this on macOS — it auto-detects providers from OpenCode's `auth.json`, probes each provider's quota/cost API, and renders a menu-bar dashboard — but it is macOS-only Swift with no reusable backend.
 
-- `--source web` is hard-blocked outside macOS (depends on Keychain-decrypted browser cookies).
-- `--source cli` spawns provider CLIs over a flaky RPC protocol.
-- There is **no first-party KDE/Plasma UI** — only Waybar, GNOME Shell, and Quickshell ports exist.
-
-CodexBarKDE is a native Plasmoid that surfaces the same usage info, built Linux-first using data-source strategies known to work reliably outside macOS (OAuth reading local `~/.codex`/`~/.claude` credentials).
+Kodebar is a **Linux-native** rewrite: a standalone backend that probes provider APIs directly (reading on-disk credentials that OpenCode and Gemini CLI already write), plus a KDE Plasmoid frontend. The backend is DE-agnostic and reusable by any Linux widget/bar.
 
 See [`PRD.md`](./PRD.md) for the full design rationale, architecture, and milestones.
 
 ## How it works
 
 ```
-codexbar CLI (upstream, unmodified)  →  Backend poller (Python, systemd --user)  →  Plasmoid (QML)
-                                         writes ~/.cache/plasma-codexbar/last.json     reads cache on a Timer
+Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
+  reads ~/.gemini/oauth_creds.json                  reads ~/.cache/kodebar/last.json
+  reads ~/.local/share/opencode/auth.json           on a Timer (or D-Bus signal)
+  probes provider quota/cost APIs directly
+  writes ~/.cache/kodebar/last.json
+  exposes `kodebar status --json`
 ```
 
-- The backend reads `~/.codexbar/config.json`, polls each enabled provider with a stagger, merges results into a cached JSON snapshot, and marks providers `stale` on failure instead of dropping them.
-- The Plasmoid renders compact panel text (`Codex 42% · Claude 8%`) and a per-provider popup with usage bars, reset countdowns, and last-updated timestamps.
-- Why a separate backend? Retries, staggering, fallback-source logic, and disk caching is far easier to get right in a small Python service than in QML — and the cache is reusable by other UI surfaces later.
+- The backend discovers providers, refreshes OAuth tokens, probes each provider's quota/cost API in parallel, merges results into a cached JSON snapshot, and marks providers `stale` on failure instead of dropping them.
+- The Plasmoid renders compact panel text (`Gemini 42% · Zen $12`) and a per-provider popup with usage bars, reset countdowns, and last-updated timestamps.
+- Why a separate backend? Token refresh, retries, parallel probing, and disk caching is far easier to get right in a backend service than in QML — and the cache + CLI are reusable by other UI surfaces (waybar, AGS, scripts).
 
 ## Provider scope
 
-| Provider | Source | Fallback |
-|---|---|---|
-| Codex | `--source oauth` | none (v1) |
-| Claude | `--source oauth` | `--source cli` on 429/rate-limit only |
+| Provider | Auth source | Probe method | Verified |
+|---|---|---|---|
+| Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API (`retrieveUserQuota`) | Path confirmed by prior art |
+| OpenCode Go | Workspace ID + auth cookie | OpenCode dashboard scrape | ✅ Live-tested |
+| OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
 
-Browser-cookie-based providers (Cursor, OpenCode, Manus…) are v2. Pure API-key providers (z.ai, OpenRouter, DeepSeek, ElevenLabs) are low-risk v1.5 candidates.
+Antigravity (replacing Gemini CLI) and OpenCode Go are the primary providers. OpenCode Zen balance is shown in the panel. Codex, Claude, and OpenRouter are out of scope (the user doesn't use them). Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
 
 ## Prerequisites
 
-Before the widget can show anything, the upstream CLI must work for you standalone:
+Before the backend can probe anything, you must already have authenticated locally:
 
 ```bash
-codex login
-claude /login
-codexbar usage --provider codex  --source oauth --format json --pretty
-codexbar usage --provider claude --source oauth --format json --pretty
-```
+gemini login      # or agy login — both write ~/.gemini/oauth_creds.json
+opencode auth     # configures providers in ~/.local/share/opencode/auth.json
 
-If those return usable JSON, the rest is buildable. If not, resolve the upstream auth/CLI issue first.
+# OpenCode Go/Zen dashboard access (one-time):
+# 1. Visit https://opencode.ai/workspace/<your-workspace-id>/go in a browser
+# 2. Copy workspace ID (wrk_...) from URL, and "auth" cookie from DevTools
+# 3. Write to ~/.config/kodebar/opencode-go.json:
+#    { "workspaceId": "wrk_...", "authCookie": "Fe26.2**..." }
+```
 
 ## Milestones
 
-- **M1** — Backend poller, CLI-only, file cache (testable from terminal)
+- **M1** — Backend: Antigravity + OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
 - **M2** — Minimal Plasmoid: compact panel text reading the cache
-- **M3** — Full popup + in-widget provider settings
-- **M4** — Polish: D-Bus instant-refresh, provider logos, KDE Store packaging, troubleshooting doc
-- **M5** — Provider expansion (API-key providers first)
+- **M3** — Full popup + in-widget settings + D-Bus instant-refresh
+- **M4** — Polish: provider logos, KDE Store packaging, troubleshooting doc
+- **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet, `state.vscdb` Antigravity fallback)
+
+See [`Milestones.md`](./Milestones.md) for details.
 
 ## License
 
-MIT, matching upstream. Provider marks redistributed under the same NOTICE-file approach as the upstream and the [waybar port](https://github.com/Marouan-chak/codexbar-waybar).
+MIT. Provider marks redistributed under the same NOTICE-file approach as [opencode-bar](https://github.com/opgginc/opencode-bar) and [CodexBar](https://github.com/steipete/CodexBar).

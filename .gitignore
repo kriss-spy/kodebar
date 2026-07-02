@@ -1,0 +1,56 @@
+# --- Secrets / env ---
+*.env
+*.local
+.env*
+
+# --- User provider config (per-machine, contains credentials) ---
+.codexbar/config.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- KDE / Plasma / QML build artifacts ---
+.directory
+.build/
+*_qmlcache.qrc
+*.qmlc
+*.jsc
+qml_*.pyc
+
+# --- Release / packaging artifacts ---
+*.zip
+*.tar.gz
+*.tgz
+*.app
+*.dmg
+*.pkg
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+
+# --- Editor / tooling ---
+.vscode/
+.idea/
+.cache/
+.tmp-clang/
+
+# --- Agent tooling (per-machine, not project code) ---
+.agents/
+skills-lock.json
+
+# --- Debug / analysis docs ---
+docs/*-analysis.md
+
+# --- Local cache snapshots (do not track per-machine poll output) ---
+.last.json
