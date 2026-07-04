@@ -2,7 +2,7 @@
 
 > Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
-**Status:** Pre-M1 (design/PRD phase, no code yet).
+**Status:** M1 WIP
 
 ---
 
