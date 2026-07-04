@@ -54,3 +54,7 @@ docs/*-analysis.md
 
 # --- Local cache snapshots (do not track per-machine poll output) ---
 .last.json
+
+# --- Rust ---
+backend/target/
+**/*.rs.bk
