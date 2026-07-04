@@ -1,4 +1,8 @@
+mod probe;
+
 use clap::{Parser, Subcommand};
+use probe::antigravity::{self, AntigravityPayload};
+use probe::{CodeAssistClient, ProbeError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -34,12 +38,26 @@ struct SnapshotMeta {
     last_updated: Option<String>,
 }
 
-/// A single provider's entry in the Snapshot. Provider-specific quota/balance
-/// fields will be carried once probes exist; the `stale` and `last_updated`
-/// fields are the Kodebar-specific extensions defined in PRD §5.5.
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+/// The provider-specific payload carried by a [`ProviderEntry`]. Each variant
+/// serializes its fields inline so the entry is a flat object keyed by
+/// provider ID, matching PRD §5.5. `#[serde(untagged)]` is safe here because
+/// each variant carries a distinct `type` discriminator (`quota-based` vs
+/// `pay-as-you-go`) and structurally disjoint fields.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+enum ProviderPayload {
+    Antigravity(AntigravityPayload),
+}
+
+/// A single provider's entry in the Snapshot. Carries the Kodebar-specific
+/// `stale` / `last_updated` extensions (PRD §5.5) alongside the
+/// provider-specific [`ProviderPayload`] via `#[serde(flatten)]`, so the two
+/// common fields sit at the same level as `type`, `usagePercentage`, etc.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct ProviderEntry {
+    #[serde(flatten)]
+    payload: ProviderPayload,
     /// True when serving last-known-good data after the most recent Probe
     /// failed. See backend/CONTEXT.md "Stale".
     stale: bool,
@@ -48,12 +66,36 @@ struct ProviderEntry {
     last_updated: Option<String>,
 }
 
+impl ProviderEntry {
+    /// Build a fresh (non-stale) entry from a successful Probe.
+    fn fresh(payload: ProviderPayload, now: String) -> Self {
+        Self {
+            payload,
+            stale: false,
+            last_updated: Some(now),
+        }
+    }
+
+    /// Build a stale entry, preserving the prior entry's payload and
+    /// `last_updated` (last-known-good). For the no-prior-data case pass an
+    /// [`ProviderPayload::Antigravity`] built from
+    /// [`AntigravityPayload::empty`].
+    fn stale_from_prior(prior: ProviderEntry) -> Self {
+        Self {
+            payload: prior.payload,
+            stale: true,
+            last_updated: prior.last_updated,
+        }
+    }
+}
+
 /// The merged JSON result of all provider probes, written to
 /// `~/.cache/kodebar/last.json`. The single boundary between Backend and
 /// Frontend. See PRD §5.5 and backend/CONTEXT.md "Snapshot".
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct Snapshot {
     _meta: SnapshotMeta,
+    #[serde(default)]
     providers: BTreeMap<String, ProviderEntry>,
 }
 
@@ -65,6 +107,12 @@ fn empty_snapshot() -> Snapshot {
         },
         providers: BTreeMap::new(),
     }
+}
+
+/// ISO 8601 UTC timestamp in the form the Snapshot schema expects (PRD §5.5
+/// example: `2026-07-02T11:17:00Z`).
+fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 /// Resolve the cache directory for the snapshot.
@@ -86,7 +134,8 @@ fn default_cache_dir() -> Result<PathBuf, String> {
 /// tempfile in the same directory and then `rename`d into place so a reader
 /// (e.g. the Plasmoid) never observes a partial write.
 fn write_snapshot_atomic(dir: &Path, snapshot: &Snapshot) -> Result<(), String> {
-    fs::create_dir_all(dir).map_err(|e| format!("failed to create cache dir {}: {e}", dir.display()))?;
+    fs::create_dir_all(dir)
+        .map_err(|e| format!("failed to create cache dir {}: {e}", dir.display()))?;
 
     // Pin the directory permissions to 0700. `create_dir_all` may inherit the
     // parent's umask, so we set it explicitly for both fresh and pre-existing
@@ -125,8 +174,101 @@ fn render_human(snapshot: &Snapshot) -> String {
     }
 }
 
+/// Run the Antigravity Probe against an injectable client and merge the
+/// result into `providers`. On failure the provider is flagged `stale`
+/// rather than dropped — last-known-good from `prior` is preserved (PRD
+/// §7.1, §7.5). `ProbeError::NoCredentials` means the provider isn't
+/// configured on this machine, so the entry is simply omitted.
+fn probe_antigravity<C: CodeAssistClient>(
+    client: &C,
+    prior: Option<ProviderEntry>,
+    providers: &mut BTreeMap<String, ProviderEntry>,
+) {
+    match antigravity::run(client, &antigravity::gemini_dir(), true) {
+        Ok(payload) => {
+            providers.insert(
+                "antigravity".to_string(),
+                ProviderEntry::fresh(ProviderPayload::Antigravity(payload), now_iso()),
+            );
+        }
+        Err(ProbeError::NoCredentials(msg)) => {
+            // Provider not configured — omit silently (no last-known-good to
+            // serve, and no stale badge to show).
+            eprintln!("kodebar: antigravity skipped: {msg}");
+        }
+        Err(ProbeError::RateLimited) | Err(_) => {
+            // Back off and serve last-known-good, flagged stale (PRD §5.1,
+            // §7.1, §7.4). With no prior data, emit an empty stale entry so
+            // the UI can still show the provider as "unavailable / stale".
+            let entry = match prior {
+                Some(p) => ProviderEntry::stale_from_prior(p),
+                None => ProviderEntry::fresh(
+                    ProviderPayload::Antigravity(AntigravityPayload::empty()),
+                    // No successful probe has ever happened.
+                    now_iso(),
+                )
+                .stale_with_no_prior(),
+            };
+            providers.insert("antigravity".to_string(), entry);
+        }
+    }
+}
+
+impl ProviderEntry {
+    /// Mark a fresh-built empty entry as stale with no prior successful
+    /// Probe (so `last_updated` is `None`).
+    fn stale_with_no_prior(self) -> Self {
+        Self {
+            payload: self.payload,
+            stale: true,
+            last_updated: None,
+        }
+    }
+}
+
+/// Build the current Snapshot by probing every configured provider. Probes
+/// are independent and isolated — one failing must not block others (PRD
+/// §7.3). The prior Snapshot (read from the cache file) supplies
+/// last-known-good data for the Stale path.
+fn build_snapshot<C: CodeAssistClient>(client: &C) -> Snapshot {
+    let prior = load_prior_snapshot().providers;
+    let mut providers = BTreeMap::new();
+
+    probe_antigravity(client, prior.get("antigravity").cloned(), &mut providers);
+
+    let last_updated = if providers.is_empty() {
+        None
+    } else {
+        Some(now_iso())
+    };
+    Snapshot {
+        _meta: SnapshotMeta {
+            version: 1,
+            last_updated,
+        },
+        providers,
+    }
+}
+
+/// Read the prior Snapshot from `<cache_dir>/last.json`, best-effort. On any
+/// read/parse failure an empty Snapshot is returned — the next poll will
+/// simply have no last-known-good to serve.
+fn load_prior_snapshot() -> Snapshot {
+    let path = match default_cache_dir() {
+        Ok(dir) => dir.join("last.json"),
+        Err(_) => return empty_snapshot(),
+    };
+    match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|_| empty_snapshot()),
+        Err(_) => empty_snapshot(),
+    }
+}
+
 fn run(cli: Cli) -> Result<(), String> {
-    let snapshot = empty_snapshot();
+    let snapshot = build_snapshot(
+        &antigravity::ReqwestClient::new()
+            .map_err(|e| format!("failed to init HTTP client: {e:?}"))?,
+    );
     match cli.command {
         Some(Command::Status { json }) => {
             if json {
@@ -201,12 +343,18 @@ mod tests {
     #[test]
     fn provider_entry_has_stale_and_last_updated_fields() {
         let entry = ProviderEntry {
+            payload: ProviderPayload::Antigravity(AntigravityPayload::empty()),
             stale: true,
             last_updated: Some("2026-07-02T11:17:00Z".to_string()),
         };
         let v: serde_json::Value = serde_json::to_value(&entry).unwrap();
+        // Common Kodebar extensions sit at the top level alongside the
+        // provider payload fields (PRD §5.5).
         assert_eq!(v["stale"], true);
         assert_eq!(v["lastUpdated"], "2026-07-02T11:17:00Z");
+        // The provider payload is flattened in, not nested.
+        assert_eq!(v["type"], "quota-based");
+        assert_eq!(v["usagePercentage"], 0);
     }
 
     #[test]
@@ -236,7 +384,12 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = fs::metadata(&dir).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o700, "cache dir should be 0700, got {:o}", mode);
+            assert_eq!(
+                mode & 0o777,
+                0o700,
+                "cache dir should be 0700, got {:o}",
+                mode
+            );
         }
 
         assert!(dir.join("last.json").exists());
@@ -268,7 +421,8 @@ mod tests {
 
         let path = dir.join("last.json");
         assert!(path.exists());
-        let read_back: Snapshot = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let read_back: Snapshot =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(snapshot, read_back);
     }
 }
