@@ -34,7 +34,7 @@ Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
 | Provider | Auth source | Probe method | Verified |
 |---|---|---|---|
 | Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API (`retrieveUserQuota`) | Path confirmed by prior art |
-| OpenCode Go | Workspace ID + auth cookie | OpenCode dashboard scrape | ✅ Live-tested |
+| OpenCode Go | API key in OpenCode `auth.json` | Official `GET /zen/go/v1/usage` API | ✅ Live-tested |
 | OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
 | ChatGPT subscription plans | Local OpenAI session credentials (to be validated) | Native plan-usage Probe (discovery required) | Planned immediately after M1 |
 
@@ -46,12 +46,12 @@ Before the backend can probe anything, you must already have authenticated local
 
 ```bash
 gemini login      # or agy login — both write ~/.gemini/oauth_creds.json
-opencode auth     # configures providers in ~/.local/share/opencode/auth.json
+kodebar login opencode  # opens the browser, validates the key, writes OpenCode auth.json
 
-# OpenCode Go/Zen dashboard access (one-time):
-# 1. Visit https://opencode.ai/workspace/<your-workspace-id>/go in a browser
-# 2. Copy workspace ID (wrk_...) from URL, and "auth" cookie from DevTools
-# 3. Write to ~/.config/kodebar/opencode-go.json:
+# Optional: OpenCode Zen dashboard balance still needs a browser session:
+# 1. Visit https://opencode.ai/workspace/<your-workspace-id> in a browser
+# 2. Copy workspace ID (wrk_...) and the "auth" cookie from DevTools
+# 3. Write ~/.config/kodebar/opencode-go.json:
 #    { "workspaceId": "wrk_...", "authCookie": "Fe26.2**..." }
 ```
 

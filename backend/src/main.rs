@@ -1,9 +1,11 @@
+mod login;
 mod probe;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use login::{LoginOutcome, SystemBrowser, TerminalSecretReader};
 use probe::antigravity::{self, AntigravityPayload};
 use probe::opencode_dashboard::DashboardClient;
-use probe::opencode_go::{self, OpenCodeGoPayload};
+use probe::opencode_go::{self, OpenCodeGoClient, OpenCodeGoPayload};
 use probe::opencode_zen::{self, OpenCodeZenPayload};
 use probe::{CodeAssistClient, ProbeError};
 use serde::{Deserialize, Serialize};
@@ -31,6 +33,17 @@ enum Command {
     /// Write the snapshot to the cache file only, with no stdout output.
     /// Intended for use by a systemd timer.
     Poll,
+    /// Configure a provider through a guided browser flow.
+    Login {
+        /// Provider to configure.
+        #[arg(value_enum)]
+        provider: LoginProvider,
+    },
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy)]
+enum LoginProvider {
+    Opencode,
 }
 
 /// Snapshot metadata.
@@ -268,15 +281,7 @@ impl ProviderEntry {
 }
 
 fn probe_error_message(error: &ProbeError) -> String {
-    match error {
-        ProbeError::NoCredentials(message)
-        | ProbeError::InvalidRefreshToken(message)
-        | ProbeError::Parse(message)
-        | ProbeError::SessionExpired(message)
-        | ProbeError::Io(message) => message.clone(),
-        ProbeError::RateLimited => "provider rate limited the Probe".into(),
-        ProbeError::Http { status, .. } => format!("provider returned HTTP {status}"),
-    }
+    error.user_message()
 }
 
 fn probe_opencode_zen<C: DashboardClient>(
@@ -285,7 +290,7 @@ fn probe_opencode_zen<C: DashboardClient>(
     prior: Option<ProviderEntry>,
     providers: &mut BTreeMap<String, ProviderEntry>,
 ) {
-    merge_dashboard_probe(
+    merge_probe_result(
         "opencode_zen",
         opencode_zen::run(client, credentials_path).map(ProviderPayload::OpenCodeZen),
         prior,
@@ -294,13 +299,13 @@ fn probe_opencode_zen<C: DashboardClient>(
     );
 }
 
-fn probe_opencode_go<C: DashboardClient>(
+fn probe_opencode_go<C: OpenCodeGoClient>(
     client: &C,
     credentials_path: &Path,
     prior: Option<ProviderEntry>,
     providers: &mut BTreeMap<String, ProviderEntry>,
 ) {
-    merge_dashboard_probe(
+    merge_probe_result(
         "opencode_go",
         opencode_go::run(client, credentials_path).map(ProviderPayload::OpenCodeGo),
         prior,
@@ -309,7 +314,7 @@ fn probe_opencode_go<C: DashboardClient>(
     );
 }
 
-fn merge_dashboard_probe(
+fn merge_probe_result(
     provider_id: &str,
     result: Result<ProviderPayload, ProbeError>,
     prior: Option<ProviderEntry>,
@@ -339,10 +344,12 @@ fn merge_dashboard_probe(
 /// are independent and isolated — one failing must not block others (PRD
 /// §7.3). The prior Snapshot (read from the cache file) supplies
 /// last-known-good data for the Stale path.
-fn build_snapshot<C: CodeAssistClient, D: DashboardClient>(
+fn build_snapshot<C: CodeAssistClient, D: DashboardClient, G: OpenCodeGoClient>(
     code_assist_client: &C,
     dashboard_client: &D,
+    go_client: &G,
     dashboard_credentials_path: &Path,
+    opencode_auth_path: &Path,
 ) -> Snapshot {
     let prior = load_prior_snapshot().providers;
     let mut providers = BTreeMap::new();
@@ -353,8 +360,8 @@ fn build_snapshot<C: CodeAssistClient, D: DashboardClient>(
         &mut providers,
     );
     probe_opencode_go(
-        dashboard_client,
-        dashboard_credentials_path,
+        go_client,
+        opencode_auth_path,
         prior.get("opencode_go").cloned(),
         &mut providers,
     );
@@ -394,14 +401,47 @@ fn load_prior_snapshot() -> Snapshot {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
+    if let Some(Command::Login {
+        provider: LoginProvider::Opencode,
+    }) = &cli.command
+    {
+        println!("Opening {}", login::OPENCODE_KEY_URL);
+        println!("Sign in, create or copy an API key, then return here.");
+        let client = probe::opencode_go::ReqwestOpenCodeGoClient::new()
+            .map_err(|e| format!("failed to init OpenCode Go HTTP client: {e:?}"))?;
+        let auth_path =
+            probe::opencode_auth::default_auth_path().map_err(|error| error.user_message())?;
+        let outcome = login::guided_opencode_login(
+            &SystemBrowser,
+            &TerminalSecretReader,
+            &client,
+            &auth_path,
+        )?;
+        match outcome {
+            LoginOutcome::ActiveGoSubscription => {
+                println!("OpenCode login saved and Go usage verified.");
+            }
+            LoginOutcome::NoGoSubscription => {
+                println!("OpenCode login saved; this workspace has no Go subscription.");
+            }
+        }
+        return Ok(());
+    }
+
     let code_assist_client = antigravity::ReqwestClient::new()
         .map_err(|e| format!("failed to init Code Assist HTTP client: {e:?}"))?;
     let dashboard_client = probe::opencode_dashboard::ReqwestDashboardClient::new()
         .map_err(|e| format!("failed to init OpenCode dashboard HTTP client: {e:?}"))?;
+    let go_client = probe::opencode_go::ReqwestOpenCodeGoClient::new()
+        .map_err(|e| format!("failed to init OpenCode Go HTTP client: {e:?}"))?;
+    let opencode_auth_path =
+        probe::opencode_auth::default_auth_path().map_err(|error| error.user_message())?;
     let snapshot = build_snapshot(
         &code_assist_client,
         &dashboard_client,
+        &go_client,
         &probe::opencode_dashboard::default_credentials_path(),
+        &opencode_auth_path,
     );
     match cli.command {
         Some(Command::Status { json }) => {
@@ -419,6 +459,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let dir = default_cache_dir()?;
             write_snapshot_atomic(&dir, &snapshot)?;
         }
+        Some(Command::Login { .. }) => unreachable!("login returned before probing"),
         // Bare `kodebar` defaults to the status invocation: write the cache
         // then print the human-readable summary.
         None => {
@@ -445,6 +486,7 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use probe::opencode_dashboard::{DashboardClient, DashboardCredentials, DashboardResponse};
+    use probe::opencode_go::{GoApiResponse, OpenCodeGoClient};
     use std::fs;
     use tempfile::TempDir;
 
@@ -458,6 +500,16 @@ mod tests {
             _credentials: &DashboardCredentials,
             _page_path: &str,
         ) -> Result<DashboardResponse, ProbeError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    struct MockGoClient {
+        response: GoApiResponse,
+    }
+
+    impl OpenCodeGoClient for MockGoClient {
+        fn get_usage(&self, _api_key: &str) -> Result<GoApiResponse, ProbeError> {
             Ok(self.response.clone())
         }
     }
@@ -559,12 +611,16 @@ mod tests {
     #[test]
     fn successful_go_probe_is_merged_into_the_snapshot_providers() {
         let tmp = TempDir::new().unwrap();
-        let credentials_path = write_dashboard_credentials(tmp.path());
-        let client = MockDashboardClient {
-            response: DashboardResponse {
+        let credentials_path = tmp.path().join("auth.json");
+        fs::write(
+            &credentials_path,
+            r#"{"opencode":{"type":"api","key":"oc-secret"}}"#,
+        )
+        .unwrap();
+        let client = MockGoClient {
+            response: GoApiResponse {
                 status: 200,
-                body: r#"window._$HY=[{status:"ok",resetInSec:60,usagePercent:14},{status:"ok",resetInSec:120,usagePercent:9},{status:"ok",resetInSec:180,usagePercent:4}]"#.into(),
-                location: None,
+                body: r#"{"usage":{"rolling":{"status":"ok","percent":14,"resetsAt":"2099-08-22T00:01:00Z"},"weekly":{"status":"ok","percent":9,"resetsAt":"2099-08-22T00:02:00Z"},"monthly":{"status":"ok","percent":4,"resetsAt":"2099-08-22T00:03:00Z"}}}"#.into(),
             },
         };
         let mut providers = BTreeMap::new();
@@ -573,7 +629,6 @@ mod tests {
 
         let value = serde_json::to_value(&providers["opencode_go"]).unwrap();
         assert_eq!(value["windows"]["rolling"]["usagePercent"], 14);
-        assert_eq!(value["windows"]["weekly"]["resetInSec"], 120);
         assert_eq!(value["stale"], false);
     }
 

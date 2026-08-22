@@ -62,7 +62,7 @@ Multiple open-source tools (`gusage`, `gemini-cli-usage`, OmniRoute) have revers
 
 - **`auth.json`** at `~/.local/share/opencode/auth.json` (or `$XDG_DATA_HOME/opencode/auth.json`) contains provider entries with OAuth tokens, API keys, or references to external credential stores.
 - **OpenCode Zen** — pay-as-you-go, daily history (30 days), model breakdown. Probed via OpenCode's dashboard API.
-- **OpenCode Go** — quota-based, 5h/weekly/monthly usage windows. Requires `OPENCODE_GO_WORKSPACE_ID` + `OPENCODE_GO_AUTH_COOKIE`, or a local config file at `~/.config/opencode-bar/opencode-go.json`.
+- **OpenCode Go** — quota-based, 5h/weekly/monthly usage windows. Uses the API key in OpenCode `auth.json` (or `OPENCODE_API_KEY`) with the official usage endpoint.
 - **OpenRouter** — pay-as-you-go, credits balance + daily/weekly/monthly cost. Probed via OpenRouter's API.
 
 ### 3.3 What this means for Kodebar
@@ -139,7 +139,7 @@ Default: **5 minutes**, configurable via `~/.config/kodebar/config.json`. Per-pr
 
 The user's actual setup (verified on-disk):
 - **Antigravity 2.0** (replaces Gemini CLI) — Google OAuth creds at `~/.gemini/oauth_creds.json`, shared between Gemini CLI and Antigravity (which stores its data in `~/.gemini/antigravity/`, `~/.gemini/antigravity-cli/`, `~/.gemini/antigravity-ide/`). Active account: single Google account.
-- **OpenCode Go** — API key in OpenCode `auth.json`, plus workspace ID (`wrk_...`) + auth cookie (`Fe26.2**...` Iron session cookie) for usage data from the OpenCode dashboard.
+- **OpenCode Go** — API key in OpenCode `auth.json`; `kodebar login opencode` provides a guided browser setup flow.
 - **OpenCode Zen** — balance available on the workspace root page with the same auth cookie. No separate auth entry needed.
 - **ChatGPT subscription plans** — scheduled immediately after the OpenCode backend. Local credential discovery and the plan-usage data source must be validated before the native Probe is specified.
 - Gemini via API key (in OpenCode `auth.json` under `google`) — **not tracked** (pay-per-use, no quota window).
@@ -147,7 +147,7 @@ The user's actual setup (verified on-disk):
 | Provider | Auth source | Probe method | Data returned | Verified? |
 |---|---|---|---|---|
 | Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API: `loadCodeAssist` + `retrieveUserQuota` | Per-model quotas, `remainingFraction`, `resetTime` | Path verified by `gusage`/`gemini-cli-usage`; creds confirmed present |
-| OpenCode Go | Workspace ID + auth cookie | Dashboard scrape: `GET https://opencode.ai/workspace/<id>/go` | Rolling 5h / weekly / monthly `usagePercent` + `resetInSec` | ✅ Live-tested — returns 200 with usage data |
+| OpenCode Go | API key in OpenCode `auth.json` | `GET https://opencode.ai/zen/go/v1/usage` with bearer auth | Rolling 5h / weekly / monthly percentage, status, and reset time | ✅ Live-tested — returns 200 with usage data |
 | OpenCode Zen | Same workspace ID + auth cookie | Dashboard scrape: `GET https://opencode.ai/workspace/<id>` | Microcent `balance`, `reloadAmount`, `reloadTrigger`, `useBalance` | ✅ Live-tested — returns 200 with balance data |
 | ChatGPT subscription plans | Local OpenAI session credentials (to be validated) | Native plan-usage Probe; discovery spike determines the stable source | Plan identity, quota windows, usage percentages, reset times where available | Planned for M1.1 |
 
@@ -172,17 +172,14 @@ Antigravity shares `~/.gemini/oauth_creds.json` with Gemini CLI — the migratio
 
 ### 5.2 OpenCode Go probe detail
 
-No official usage API exists yet (issues [#16017](https://github.com/anomalyco/opencode/issues/16017), [#31084](https://github.com/anomalyco/opencode/issues/31084)). PR [#16513](https://github.com/anomalyco/opencode/pull/16513) adds `GET /zen/go/v1/usage` but is not merged. Until then, dashboard scraping:
+The official API is available:
 
-1. Read workspace ID and auth cookie from config (see §5.4).
-2. `GET https://opencode.ai/workspace/<workspaceId>/go` with `Cookie: auth=<authCookie>`.
-3. Parse SolidJS SSR hydration output for three usage windows:
-   - Rolling 5h: `{status:"ok",resetInSec:...,usagePercent:...}`
-   - Weekly: same shape
-   - Monthly: same shape
-4. Compute remaining = `100 - usagePercent`, reset time = `now + resetInSec`.
+1. Read the `opencode` API credential from OpenCode's `auth.json`; accept the legacy `opencode-go` entry and `OPENCODE_API_KEY` override.
+2. `GET https://opencode.ai/zen/go/v1/usage` with `Authorization: Bearer <api-key>`.
+3. Parse the rolling, weekly, and monthly windows: `status`, `percent`, and absolute `resetsAt`.
+4. Compute `resetInSec` from `resetsAt` for the Snapshot contract. Treat 401 as an invalid credential and 403 as a missing Go entitlement.
 
-**When the official API lands** (`GET /zen/go/v1/usage` with API key auth), switch to it — cleaner, no cookie dependency, no scraping fragility.
+`kodebar login opencode` opens the OpenCode key page, reads the pasted key without terminal echo, validates it, and writes the standard OpenCode `auth.json` entry with 0600 permissions.
 
 ### 5.3 OpenCode Zen probe detail
 
@@ -196,7 +193,11 @@ This Provider follows completion of the OpenCode Go and Zen Probes. Start with a
 
 The implementation target is plan identity plus quota windows, usage percentages, and reset times where available. It must isolate failures, preserve last-known-good data as Stale, and clearly distinguish ChatGPT subscription quota from pay-as-you-go OpenAI API billing.
 
-### 5.4 Credential storage for OpenCode dashboard
+### 5.4 Credential storage for OpenCode
+
+OpenCode Go uses the standard `~/.local/share/opencode/auth.json` (or `$XDG_DATA_HOME/opencode/auth.json`) API-key entry. Kodebar preserves unrelated provider credentials when guided login writes the `opencode` entry.
+
+OpenCode Zen's optional dashboard Probe still uses a workspace ID and auth cookie stored in `~/.config/kodebar/opencode-go.json` with `0600` file permissions:
 
 The workspace ID and auth cookie are stored in `~/.config/kodebar/opencode-go.json` with `0600` file permissions:
 
@@ -299,7 +300,7 @@ Given that provider APIs are undocumented, reverse-engineered, and prone to brea
 5. **Surface the failure state distinctly** (stale badge, dimmed icon) rather than silently showing wrong/old numbers as if current.
 6. **Handle the `remainingAmount` omission** when Antigravity/Gemini quota is at 100% — compute from `remainingFraction` instead.
 7. **Token refresh must be silent.** If the OAuth access token is expired, refresh it transparently before probing. Only surface an auth error if the refresh token itself is invalid.
-8. **Detect OpenCode dashboard cookie expiration.** A 401 or redirect to login means the Iron session cookie expired. Surface a "session expired — re-login at opencode.ai" state, not a crash or silent stale-forever.
+8. **Detect OpenCode authentication failures.** A Go API 401 requests guided login. For the optional Zen Probe, a 401 or login redirect means the dashboard cookie expired. Surface either state, not a crash or silent stale-forever.
 
 ---
 
@@ -327,7 +328,7 @@ See [`Milestones.md`](./Milestones.md).
 4. ~~Which providers does the user actually use?~~ — Antigravity (replaces Gemini CLI), OpenCode Go, OpenCode Zen, followed by ChatGPT subscription plans. The first three Probe paths are verified; ChatGPT credential and usage-source discovery is M1.1. Gemini and OpenAI API-key billing are explicitly not tracked (pay-per-use, no subscription quota window).
 5. ~~Cache file location and schema~~ — `~/.cache/kodebar/last.json`. Schema matches opencode-bar's `status --json` shape (flat object keyed by provider ID, `type` field, per-provider data) with Kodebar-specific extensions (`stale`, `lastUpdated`, `_meta`). See §5.5.
 6. ~~D-Bus service name~~ — `ai.kodebar` (simple, not KDE-specific since the backend is DE-agnostic). Not blocking M1; only needed in M3 when D-Bus signals are added.
-7. ~~Backend config location / credential storage~~ — `~/.config/kodebar/opencode-go.json` (0600 perms) for workspace ID + auth cookie. Env vars take precedence if set. No keyring dependency in v1.
+7. ~~Backend config location / credential storage~~ — standard OpenCode `auth.json` for the Go API key, with `OPENCODE_API_KEY` override. The optional Zen Probe retains `~/.config/kodebar/opencode-go.json` (0600) for workspace ID + auth cookie.
 8. ~~Antigravity awareness~~ — resolved: Antigravity shares `~/.gemini/oauth_creds.json` with Gemini CLI. The probe uses this file directly. `state.vscdb` fallback is M5.
 9. ~~Session/cost tracking~~ — quota-only for v1. Live probing of current quota/balance is sufficient for a status bar widget. Historical session/cost tracking (reading OpenCode's SQLite DB) is a v2 feature.
 10. ~~Multi-account support~~ — single-account for v1. The user has one Google account. The schema uses `accounts[]` arrays, so multi-account is a backward-compatible extension for v2.
@@ -342,15 +343,15 @@ Before the backend can probe anything, the user must already have authenticated 
 # Antigravity / Gemini CLI OAuth (writes ~/.gemini/oauth_creds.json)
 gemini login          # or agy login — both write to the same file
 
-# OpenCode with providers configured
-opencode auth
+# Guided OpenCode Go setup (opens https://opencode.ai/auth)
+kodebar login opencode
 
-# OpenCode Go dashboard access (manual one-time setup):
-# 1. Visit https://opencode.ai/workspace/<your-workspace-id>/go in a browser
+# Optional OpenCode Zen dashboard access:
+# 1. Visit https://opencode.ai/workspace/<your-workspace-id> in a browser
 # 2. Copy the workspace ID from the URL (wrk_...)
 # 3. Open DevTools → Application → Cookies → opencode.ai → copy the "auth" cookie value
 # 4. Write to ~/.config/kodebar/opencode-go.json:
 #    { "workspaceId": "wrk_...", "authCookie": "Fe26.2**..." }
 ```
 
-If `gemini login` works and `~/.gemini/oauth_creds.json` exists, the Antigravity probe is buildable. If the OpenCode dashboard cookie returns 200, the Go and Zen probes are buildable.
+If `gemini login` works and `~/.gemini/oauth_creds.json` exists, the Antigravity Probe is buildable. If `kodebar login opencode` validates the API key, the Go Probe is buildable. The dashboard cookie is only needed for Zen.

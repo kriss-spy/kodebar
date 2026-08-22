@@ -5,6 +5,7 @@
 //! Snapshot, Stale, Quota Window, Credential File, Token Refresh).
 
 pub mod antigravity;
+pub mod opencode_auth;
 pub mod opencode_dashboard;
 pub mod opencode_go;
 pub mod opencode_zen;
@@ -29,6 +30,8 @@ pub enum ProbeError {
     /// The OAuth refresh token itself is invalid or revoked. This is the one
     /// auth error that is user-facing (PRD §7.7).
     InvalidRefreshToken(String),
+    /// A configured API key or access token was rejected.
+    InvalidCredentials(String),
     /// `retrieveUserQuota` (or an equivalent quota endpoint) returned 429.
     /// Back off and serve stale data (PRD §5.1 gotcha, §7.4).
     RateLimited,
@@ -41,6 +44,22 @@ pub enum ProbeError {
     /// A local I/O failure (reading the Credential File, writing back a
     /// refreshed token, …).
     Io(String),
+}
+
+impl ProbeError {
+    /// Render an actionable message without including response bodies or credentials.
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::NoCredentials(message)
+            | Self::InvalidRefreshToken(message)
+            | Self::InvalidCredentials(message)
+            | Self::Parse(message)
+            | Self::SessionExpired(message)
+            | Self::Io(message) => message.clone(),
+            Self::RateLimited => "provider rate limited the Probe".into(),
+            Self::Http { status, .. } => format!("provider returned HTTP {status}"),
+        }
+    }
 }
 
 /// An HTTP-level response captured for the probe logic to inspect (notably

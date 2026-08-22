@@ -1,6 +1,6 @@
 # Backend
 
-A native Linux service (Rust) that probes AI provider quota/cost APIs directly, reading on-disk credentials that OpenCode and Gemini CLI / Antigravity already write. No upstream CLI dependency, no subprocess spawning.
+A native Linux service (Rust) that probes AI provider quota/cost APIs directly, reading on-disk credentials that OpenCode and Gemini CLI / Antigravity already write. Probes have no upstream CLI or subprocess dependency. The interactive login command may ask the desktop URL handler to open a browser.
 
 ## Language
 
@@ -25,7 +25,7 @@ A time-bounded usage limit for a Provider. Antigravity has per-model windows wit
 _Avoid_: limit, period, tier
 
 **Credential File**:
-A file on disk containing authentication tokens that a Probe reads. Antigravity: `~/.gemini/oauth_creds.json`. OpenCode dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms). OpenCode providers: `~/.local/share/opencode/auth.json`.
+A file on disk containing authentication tokens that a Probe reads. Antigravity: `~/.gemini/oauth_creds.json`. OpenCode Go: `~/.local/share/opencode/auth.json` (API key). Optional OpenCode Zen dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms).
 _Avoid_: auth file, token file
 
 **Token Refresh**:
