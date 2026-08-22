@@ -5,6 +5,9 @@
 //! Snapshot, Stale, Quota Window, Credential File, Token Refresh).
 
 pub mod antigravity;
+pub mod opencode_dashboard;
+pub mod opencode_go;
+pub mod opencode_zen;
 
 pub use antigravity::CodeAssistClient;
 
@@ -33,6 +36,8 @@ pub enum ProbeError {
     Http { status: u16, body: String },
     /// The response did not match the documented shape.
     Parse(String),
+    /// A browser-backed dashboard rejected or redirected the saved session.
+    SessionExpired(String),
     /// A local I/O failure (reading the Credential File, writing back a
     /// refreshed token, …).
     Io(String),

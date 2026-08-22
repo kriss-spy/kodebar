@@ -9,7 +9,7 @@ A single provider API call (or pair of calls) that fetches current quota or bala
 _Avoid_: fetch, poll, request, call
 
 **Provider**:
-An AI service whose usage/quota/cost Kodebar tracks. v1 scope: Antigravity (Google Gemini quota), OpenCode Go (subscription usage windows), OpenCode Zen (credit balance).
+An AI service whose usage/quota/cost Kodebar tracks. Initial scope: Antigravity (Google Gemini quota), OpenCode Go (subscription usage windows), and OpenCode Zen (credit balance). ChatGPT subscription plans are the first follow-on Provider, immediately after the OpenCode backend.
 _Avoid_: source, service, account (use Provider for the service, Account for a credential identity within it)
 
 **Snapshot**:

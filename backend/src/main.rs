@@ -2,6 +2,9 @@ mod probe;
 
 use clap::{Parser, Subcommand};
 use probe::antigravity::{self, AntigravityPayload};
+use probe::opencode_dashboard::DashboardClient;
+use probe::opencode_go::{self, OpenCodeGoPayload};
+use probe::opencode_zen::{self, OpenCodeZenPayload};
 use probe::{CodeAssistClient, ProbeError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -47,6 +50,8 @@ struct SnapshotMeta {
 #[serde(untagged)]
 enum ProviderPayload {
     Antigravity(AntigravityPayload),
+    OpenCodeGo(OpenCodeGoPayload),
+    OpenCodeZen(OpenCodeZenPayload),
 }
 
 /// A single provider's entry in the Snapshot. Carries the Kodebar-specific
@@ -64,6 +69,9 @@ struct ProviderEntry {
     /// ISO 8601 timestamp of the last successful Probe for this provider.
     /// `None` until a probe has succeeded.
     last_updated: Option<String>,
+    /// Actionable reason the latest Probe failed, when one is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 impl ProviderEntry {
@@ -73,6 +81,7 @@ impl ProviderEntry {
             payload,
             stale: false,
             last_updated: Some(now),
+            error: None,
         }
     }
 
@@ -85,6 +94,7 @@ impl ProviderEntry {
             payload: prior.payload,
             stale: true,
             last_updated: prior.last_updated,
+            error: prior.error,
         }
     }
 }
@@ -92,11 +102,36 @@ impl ProviderEntry {
 /// The merged JSON result of all provider probes, written to
 /// `~/.cache/kodebar/last.json`. The single boundary between Backend and
 /// Frontend. See PRD §5.5 and backend/CONTEXT.md "Snapshot".
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq)]
 struct Snapshot {
     _meta: SnapshotMeta,
+    #[serde(flatten)]
+    providers: BTreeMap<String, ProviderEntry>,
+}
+
+#[derive(Deserialize)]
+struct SnapshotWire {
+    _meta: SnapshotMeta,
+    /// Compatibility with snapshots written before the documented flat
+    /// provider map was implemented.
     #[serde(default)]
     providers: BTreeMap<String, ProviderEntry>,
+    #[serde(flatten)]
+    flat_providers: BTreeMap<String, ProviderEntry>,
+}
+
+impl<'de> Deserialize<'de> for Snapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut wire = SnapshotWire::deserialize(deserializer)?;
+        wire.providers.append(&mut wire.flat_providers);
+        Ok(Self {
+            _meta: wire._meta,
+            providers: wire.providers,
+        })
+    }
 }
 
 fn empty_snapshot() -> Snapshot {
@@ -222,6 +257,80 @@ impl ProviderEntry {
             payload: self.payload,
             stale: true,
             last_updated: None,
+            error: self.error,
+        }
+    }
+
+    fn with_error(mut self, error: String) -> Self {
+        self.error = Some(error);
+        self
+    }
+}
+
+fn probe_error_message(error: &ProbeError) -> String {
+    match error {
+        ProbeError::NoCredentials(message)
+        | ProbeError::InvalidRefreshToken(message)
+        | ProbeError::Parse(message)
+        | ProbeError::SessionExpired(message)
+        | ProbeError::Io(message) => message.clone(),
+        ProbeError::RateLimited => "provider rate limited the Probe".into(),
+        ProbeError::Http { status, .. } => format!("provider returned HTTP {status}"),
+    }
+}
+
+fn probe_opencode_zen<C: DashboardClient>(
+    client: &C,
+    credentials_path: &Path,
+    prior: Option<ProviderEntry>,
+    providers: &mut BTreeMap<String, ProviderEntry>,
+) {
+    merge_dashboard_probe(
+        "opencode_zen",
+        opencode_zen::run(client, credentials_path).map(ProviderPayload::OpenCodeZen),
+        prior,
+        ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
+        providers,
+    );
+}
+
+fn probe_opencode_go<C: DashboardClient>(
+    client: &C,
+    credentials_path: &Path,
+    prior: Option<ProviderEntry>,
+    providers: &mut BTreeMap<String, ProviderEntry>,
+) {
+    merge_dashboard_probe(
+        "opencode_go",
+        opencode_go::run(client, credentials_path).map(ProviderPayload::OpenCodeGo),
+        prior,
+        ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+        providers,
+    );
+}
+
+fn merge_dashboard_probe(
+    provider_id: &str,
+    result: Result<ProviderPayload, ProbeError>,
+    prior: Option<ProviderEntry>,
+    empty_payload: ProviderPayload,
+    providers: &mut BTreeMap<String, ProviderEntry>,
+) {
+    match result {
+        Ok(payload) => {
+            providers.insert(provider_id.into(), ProviderEntry::fresh(payload, now_iso()));
+        }
+        Err(ProbeError::NoCredentials(message)) if prior.is_none() => {
+            eprintln!("kodebar: {provider_id} skipped: {message}");
+        }
+        Err(error) => {
+            let message = probe_error_message(&error);
+            let entry = match prior {
+                Some(prior) => ProviderEntry::stale_from_prior(prior),
+                None => ProviderEntry::fresh(empty_payload, now_iso()).stale_with_no_prior(),
+            }
+            .with_error(message);
+            providers.insert(provider_id.into(), entry);
         }
     }
 }
@@ -230,11 +339,31 @@ impl ProviderEntry {
 /// are independent and isolated — one failing must not block others (PRD
 /// §7.3). The prior Snapshot (read from the cache file) supplies
 /// last-known-good data for the Stale path.
-fn build_snapshot<C: CodeAssistClient>(client: &C) -> Snapshot {
+fn build_snapshot<C: CodeAssistClient, D: DashboardClient>(
+    code_assist_client: &C,
+    dashboard_client: &D,
+    dashboard_credentials_path: &Path,
+) -> Snapshot {
     let prior = load_prior_snapshot().providers;
     let mut providers = BTreeMap::new();
 
-    probe_antigravity(client, prior.get("antigravity").cloned(), &mut providers);
+    probe_antigravity(
+        code_assist_client,
+        prior.get("antigravity").cloned(),
+        &mut providers,
+    );
+    probe_opencode_go(
+        dashboard_client,
+        dashboard_credentials_path,
+        prior.get("opencode_go").cloned(),
+        &mut providers,
+    );
+    probe_opencode_zen(
+        dashboard_client,
+        dashboard_credentials_path,
+        prior.get("opencode_zen").cloned(),
+        &mut providers,
+    );
 
     let last_updated = if providers.is_empty() {
         None
@@ -265,9 +394,14 @@ fn load_prior_snapshot() -> Snapshot {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
+    let code_assist_client = antigravity::ReqwestClient::new()
+        .map_err(|e| format!("failed to init Code Assist HTTP client: {e:?}"))?;
+    let dashboard_client = probe::opencode_dashboard::ReqwestDashboardClient::new()
+        .map_err(|e| format!("failed to init OpenCode dashboard HTTP client: {e:?}"))?;
     let snapshot = build_snapshot(
-        &antigravity::ReqwestClient::new()
-            .map_err(|e| format!("failed to init HTTP client: {e:?}"))?,
+        &code_assist_client,
+        &dashboard_client,
+        &probe::opencode_dashboard::default_credentials_path(),
     );
     match cli.command {
         Some(Command::Status { json }) => {
@@ -310,8 +444,34 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use probe::opencode_dashboard::{DashboardClient, DashboardCredentials, DashboardResponse};
     use std::fs;
     use tempfile::TempDir;
+
+    struct MockDashboardClient {
+        response: DashboardResponse,
+    }
+
+    impl DashboardClient for MockDashboardClient {
+        fn get(
+            &self,
+            _credentials: &DashboardCredentials,
+            _page_path: &str,
+        ) -> Result<DashboardResponse, ProbeError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    fn write_dashboard_credentials(dir: &Path) -> PathBuf {
+        let path = dir.join("opencode-go.json");
+        fs::write(&path, r#"{"workspaceId":"wrk_test","authCookie":"cookie"}"#).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        path
+    }
 
     #[test]
     fn status_json_is_valid_snapshot_with_version_one() {
@@ -319,15 +479,14 @@ mod tests {
         let encoded = serde_json::to_string(&snapshot).unwrap();
         let value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
         assert_eq!(value["_meta"]["version"], 1);
-        assert!(value["providers"].is_object());
-        assert!(value["providers"].as_object().unwrap().is_empty());
+        assert!(value.get("providers").is_none());
     }
 
     #[test]
     fn status_json_matches_expected_shape() {
         let snapshot = empty_snapshot();
         let encoded = serde_json::to_string(&snapshot).unwrap();
-        let expected = r#"{"_meta":{"version":1,"lastUpdated":null},"providers":{}}"#;
+        let expected = r#"{"_meta":{"version":1,"lastUpdated":null}}"#;
         // Order-insensitive comparison via round-trip parse.
         let got: serde_json::Value = serde_json::from_str(&encoded).unwrap();
         let want: serde_json::Value = serde_json::from_str(expected).unwrap();
@@ -346,6 +505,7 @@ mod tests {
             payload: ProviderPayload::Antigravity(AntigravityPayload::empty()),
             stale: true,
             last_updated: Some("2026-07-02T11:17:00Z".to_string()),
+            error: None,
         };
         let v: serde_json::Value = serde_json::to_value(&entry).unwrap();
         // Common Kodebar extensions sit at the top level alongside the
@@ -355,6 +515,94 @@ mod tests {
         // The provider payload is flattened in, not nested.
         assert_eq!(v["type"], "quota-based");
         assert_eq!(v["usagePercentage"], 0);
+    }
+
+    #[test]
+    fn opencode_zen_entry_serializes_as_a_stale_provider_with_an_actionable_error() {
+        let entry = ProviderEntry {
+            payload: ProviderPayload::OpenCodeZen(probe::opencode_zen::OpenCodeZenPayload::empty()),
+            stale: true,
+            last_updated: None,
+            error: Some("session expired — re-login at opencode.ai".into()),
+        };
+
+        let value = serde_json::to_value(entry).unwrap();
+
+        assert_eq!(value["type"], "pay-as-you-go");
+        assert_eq!(value["balanceFormatted"], "$0.00");
+        assert_eq!(value["stale"], true);
+        assert_eq!(value["error"], "session expired — re-login at opencode.ai");
+    }
+
+    #[test]
+    fn successful_zen_probe_is_merged_into_the_snapshot_providers() {
+        let tmp = TempDir::new().unwrap();
+        let credentials_path = write_dashboard_credentials(tmp.path());
+        let client = MockDashboardClient {
+            response: DashboardResponse {
+                status: 200,
+                body: r#"window._$HY={balance:-1392399000,reloadAmount:20,reloadTrigger:5,useBalance:true}"#
+                    .into(),
+                location: None,
+            },
+        };
+        let mut providers = BTreeMap::new();
+
+        probe_opencode_zen(&client, &credentials_path, None, &mut providers);
+
+        let value = serde_json::to_value(&providers["opencode_zen"]).unwrap();
+        assert_eq!(value["balanceFormatted"], "$13.92");
+        assert_eq!(value["stale"], false);
+        assert!(value.get("error").is_none());
+    }
+
+    #[test]
+    fn successful_go_probe_is_merged_into_the_snapshot_providers() {
+        let tmp = TempDir::new().unwrap();
+        let credentials_path = write_dashboard_credentials(tmp.path());
+        let client = MockDashboardClient {
+            response: DashboardResponse {
+                status: 200,
+                body: r#"window._$HY=[{status:"ok",resetInSec:60,usagePercent:14},{status:"ok",resetInSec:120,usagePercent:9},{status:"ok",resetInSec:180,usagePercent:4}]"#.into(),
+                location: None,
+            },
+        };
+        let mut providers = BTreeMap::new();
+
+        probe_opencode_go(&client, &credentials_path, None, &mut providers);
+
+        let value = serde_json::to_value(&providers["opencode_go"]).unwrap();
+        assert_eq!(value["windows"]["rolling"]["usagePercent"], 14);
+        assert_eq!(value["windows"]["weekly"]["resetInSec"], 120);
+        assert_eq!(value["stale"], false);
+    }
+
+    #[test]
+    fn missing_dashboard_credentials_preserve_prior_zen_data_as_stale() {
+        let client = MockDashboardClient {
+            response: DashboardResponse {
+                status: 200,
+                body: String::new(),
+                location: None,
+            },
+        };
+        let prior = ProviderEntry::fresh(
+            ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
+            "2026-08-22T01:02:03Z".into(),
+        );
+        let mut providers = BTreeMap::new();
+
+        probe_opencode_zen(
+            &client,
+            Path::new("/definitely/missing/opencode-go.json"),
+            Some(prior),
+            &mut providers,
+        );
+
+        let value = serde_json::to_value(&providers["opencode_zen"]).unwrap();
+        assert_eq!(value["stale"], true);
+        assert_eq!(value["lastUpdated"], "2026-08-22T01:02:03Z");
+        assert!(value["error"].as_str().unwrap().contains("does not exist"));
     }
 
     #[test]
@@ -372,6 +620,22 @@ mod tests {
         assert_eq!(read_back._meta.version, 1);
         assert!(read_back._meta.last_updated.is_none());
         assert!(read_back.providers.is_empty());
+    }
+
+    #[test]
+    fn reads_legacy_nested_provider_snapshots() {
+        let entry = ProviderEntry::fresh(
+            ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
+            "2026-08-22T01:02:03Z".into(),
+        );
+        let legacy = serde_json::json!({
+            "_meta": {"version": 1, "lastUpdated": "2026-08-22T01:02:03Z"},
+            "providers": {"opencode_zen": entry}
+        });
+
+        let snapshot: Snapshot = serde_json::from_value(legacy).unwrap();
+
+        assert!(snapshot.providers.contains_key("opencode_zen"));
     }
 
     #[test]
