@@ -13,10 +13,10 @@ Testable entirely from the terminal before any QML exists.
 Implemented as a native, read-only Probe of the current file-backed Codex ChatGPT session. The Snapshot exposes plan identity and default/additional quota windows. Kodebar neither refreshes nor writes the shared session; rejected sessions become actionable Stale state. The validated direct endpoint is first-party but internal, so response parsing remains a compatibility boundary. This tracks ChatGPT subscription usage, not pay-as-you-go OpenAI API billing.
 
 **M2 — Minimal Plasmoid**
-Implemented Plasma 6 package: the Snapshot Reader reads the cache file on a `Timer`, and the Compact Representation shows the highest actionable quota Provider (with Zen fallback and Stale styling). No settings UI yet.
+Implemented Plasma 6 package: the Snapshot Reader reads the Snapshot on a `Timer`, and the Compact Representation shows the highest actionable quota Provider with Zen fallback and Stale styling.
 
 **M3 — Full popup + settings**
-Per-provider cards, reset countdowns, stale-state styling, Antigravity per-model breakdown, Go three-window bars, Zen balance, and ChatGPT plan usage. In-widget provider toggle UI. D-Bus instant-refresh signal.
+Implemented per-Provider Cards, reset countdowns, Stale Badges, Antigravity per-model breakdown, Go three-window bars, Zen balance, and ChatGPT plan usage. Plasma settings control Provider visibility, the Snapshot check interval, and automatic or pinned Compact selection. The backend broadcasts `ai.kodebar.SnapshotUpdated` after persistence; the Snapshot Reader refreshes immediately while retaining its Timer fallback.
 
 **M4 — Polish**
 Provider logos, KDE Store packaging, troubleshooting doc (guided login, optional Zen cookie expiration handling, Antigravity deprecation watch).

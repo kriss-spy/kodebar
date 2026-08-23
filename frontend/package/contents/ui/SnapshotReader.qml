@@ -6,11 +6,26 @@ import org.kde.plasma.plasma5support as Plasma5Support
 Item {
     id: root
 
-    property string snapshotPath: StandardPaths.writableLocation(StandardPaths.GenericCacheLocation) + "/kodebar/last.json"
+    property string snapshotPath: root.localFilePath(StandardPaths.writableLocation(StandardPaths.GenericCacheLocation)) + "/kodebar/last.json"
+    property var snapshot: null
+    property var selectionOptions: ({})
     property var selection: ProviderSelection.selectProvider(null)
     property bool hasSnapshot: false
     property string errorMessage: ""
     property bool pollingEnabled: true
+    property int pollingInterval: 30000
+
+    function localFilePath(value) {
+        const location = value.toString();
+        return location.startsWith("file://")
+            ? decodeURIComponent(location.substring(7))
+            : location;
+    }
+
+    onSelectionOptionsChanged: {
+        if (root.snapshot)
+            root.selection = ProviderSelection.selectProvider(root.snapshot, root.selectionOptions);
+    }
 
     function readSnapshot(output) {
         try {
@@ -18,7 +33,8 @@ Item {
             if (!snapshot || typeof snapshot !== "object" || !snapshot._meta)
                 throw new Error("invalid Snapshot root");
 
-            root.selection = ProviderSelection.selectProvider(snapshot);
+            root.snapshot = snapshot;
+            root.selection = ProviderSelection.selectProvider(snapshot, root.selectionOptions);
             root.hasSnapshot = true;
             root.errorMessage = "";
         } catch (error) {
@@ -30,6 +46,8 @@ Item {
     }
 
     function refresh() {
+        // Plasma 6 pure QML has no general local-file content reader. Keep this
+        // compatibility adapter fixed, local, and limited to the Snapshot path.
         const command = "/usr/bin/cat -- " + root.shellQuote(root.snapshotPath);
         snapshotSource.disconnectSource(command);
         snapshotSource.connectSource(command);
@@ -50,7 +68,7 @@ Item {
     }
 
     Timer {
-        interval: 30000
+        interval: root.pollingInterval
         running: root.pollingEnabled
         repeat: true
         triggeredOnStart: true

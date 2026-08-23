@@ -38,19 +38,31 @@ function providerMap(snapshot) {
     return snapshot;
 }
 
-function selectProvider(snapshot) {
+function selectProvider(snapshot, options) {
     const providers = providerMap(snapshot);
+    const enabledProviders = options && options.enabledProviders;
+    const compactProvider = options && options.compactProvider;
     const providerIds = Object.keys(providers).filter(function(providerId) {
-        return providerId !== "_meta";
+        return providerId !== "_meta"
+            && (!enabledProviders || enabledProviders[providerId] !== false);
     }).sort();
     let selected = null;
     let zenFallback = null;
+    let pinned = null;
 
     providerIds.forEach(function(providerId) {
         const provider = providers[providerId];
         const usage = quotaUsage(provider);
         if (usage !== null && (!selected || usage > selected.usage)) {
             selected = {
+                providerId: providerId,
+                value: Math.round(usage) + "%",
+                usage: usage,
+                stale: provider.stale === true,
+            };
+        }
+        if (providerId === compactProvider && usage !== null) {
+            pinned = {
                 providerId: providerId,
                 value: Math.round(usage) + "%",
                 usage: usage,
@@ -66,10 +78,13 @@ function selectProvider(snapshot) {
                 usage: null,
                 stale: provider.stale === true,
             };
+            if (providerId === compactProvider) {
+                pinned = zenFallback;
+            }
         }
     });
 
-    return selected || zenFallback || {
+    return pinned || selected || zenFallback || {
         providerId: "",
         value: "",
         usage: null,

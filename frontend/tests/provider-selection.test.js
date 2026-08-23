@@ -90,3 +90,61 @@ const exhaustedGo = context.selectProvider({
 });
 assert.equal(exhaustedGo.providerId, "opencode_go");
 assert.equal(exhaustedGo.value, "100%");
+
+const disabledHighest = context.selectProvider({
+    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    opencode_go: {
+        type: "quota-based",
+        windows: { rolling: { usagePercent: 40, status: "ok" } },
+        stale: false,
+    },
+}, {
+    enabledProviders: { antigravity: false, opencode_go: true },
+    compactProvider: "highest",
+});
+assert.equal(disabledHighest.providerId, "opencode_go");
+assert.equal(disabledHighest.value, "40%");
+
+const pinnedProvider = context.selectProvider({
+    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    opencode_go: {
+        type: "quota-based",
+        windows: { rolling: { usagePercent: 40, status: "ok" } },
+        stale: false,
+    },
+}, {
+    enabledProviders: { antigravity: true, opencode_go: true },
+    compactProvider: "opencode_go",
+});
+assert.equal(pinnedProvider.providerId, "opencode_go");
+assert.equal(pinnedProvider.value, "40%");
+
+const disabledPinFallsBack = context.selectProvider({
+    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    chatgpt: {
+        type: "quota-based",
+        limits: { codex: { primary: { usagePercent: 65 } } },
+        stale: false,
+    },
+}, {
+    enabledProviders: { antigravity: false, chatgpt: true },
+    compactProvider: "antigravity",
+});
+assert.equal(disabledPinFallsBack.providerId, "chatgpt");
+assert.equal(disabledPinFallsBack.value, "65%");
+
+const unavailablePinFallsBack = context.selectProvider({
+    antigravity: { type: "quota-based", usagePercentage: 55, stale: false },
+}, {
+    enabledProviders: { antigravity: true, opencode_go: true },
+    compactProvider: "opencode_go",
+});
+assert.equal(unavailablePinFallsBack.providerId, "antigravity");
+
+const allDisabled = context.selectProvider({
+    antigravity: { type: "quota-based", usagePercentage: 55, stale: false },
+}, {
+    enabledProviders: { antigravity: false },
+    compactProvider: "highest",
+});
+assert.equal(allDisabled.providerId, "");

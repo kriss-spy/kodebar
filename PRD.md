@@ -1,7 +1,7 @@
 # PRD: Kodebar — AI Provider Usage Tracker for Linux
 
 **Project name:** `kodebar`
-**Status:** Draft v2 (major redesign)
+**Status:** Implemented through M3
 **Author:** human + AI
 **Reference:** [opgginc/opencode-bar](https://github.com/opgginc/opencode-bar) (macOS, Swift) — the OpenCode equivalent of CodexBar, already probes 20+ providers including Gemini CLI. Also: [wakamex/gemini-cli-usage](https://github.com/wakamex/gemini-cli-usage), [a-hariti/gusage](https://github.com/a-hariti/gusage) — standalone Gemini quota monitors that reverse-engineer the Code Assist API.
 
@@ -67,7 +67,7 @@ Multiple open-source tools (`gusage`, `gemini-cli-usage`, OmniRoute) have revers
 
 ### 3.3 What this means for Kodebar
 
-The novel work is: implement the provider-probe layer natively on Linux, reading the same on-disk credentials that OpenCode and Gemini CLI already write. No subprocess spawning, no upstream CLI dependency, no macOS-specific auth flows. The Plasmoid is a thin renderer over the backend's JSON snapshot — same split as the original design, just with a native backend instead of a CLI wrapper.
+The novel work is: implement the provider-probe layer natively on Linux, reading the same on-disk credentials that OpenCode and Gemini CLI already write. Provider Probes do not spawn subprocesses or depend on upstream CLIs, and there are no macOS-specific auth flows. The Plasmoid is a thin renderer over the backend's JSON Snapshot — same split as the original design, just with a native backend instead of a CLI wrapper.
 
 ---
 
@@ -91,8 +91,8 @@ The novel work is: implement the provider-probe layer natively on Linux, reading
 │  - Exposes a CLI: `kodebar status --json`        │
 │    for debugging / non-KDE use                   │
 └───────────────────┬─────────────────────────────┘
-                    │ read (not spawn) — plasmoid
-                    │ never shells out directly
+                    │ local Snapshot boundary
+                    │ fixed, read-only compatibility adapter
                     ▼
 ┌─────────────────────────────────────────────────┐
 │  Plasmoid (QML)                                  │
@@ -100,7 +100,7 @@ The novel work is: implement the provider-probe layer natively on Linux, reading
 │  - fullRepresentation: popup, per-provider       │
 │    card with usage bars + reset times            │
 │  - Settings page: provider enable/disable,       │
-│    refresh interval                              │
+│    Snapshot check interval + Compact Provider    │
 │  - polls the cache file on a Timer, or           │
 │    subscribes to a D-Bus signal from the         │
 │    backend for instant refresh                   │
@@ -116,22 +116,30 @@ QML *can* make HTTP requests, but doing OAuth token refresh, parallel probing, r
 - The backend's `kodebar status --json` CLI is independently useful for scripts, notifications, or non-KDE environments.
 - Debugging is `kodebar status` and reading stdout, not digging through Plasma's QML process logs.
 
+Plasma 6 does not expose a general local-file content reader to an unextended
+pure-QML Plasmoid, and Qt's QML XHR blocks `file:` reads by default. The frontend
+therefore uses Plasma's executable data engine as a narrow compatibility adapter:
+it invokes the fixed `/usr/bin/cat -- <quoted Snapshot path>` command and parses
+stdout. The path is generated locally, never comes from Snapshot data, and this
+adapter cannot invoke Provider CLIs or make network requests. Provider discovery,
+authentication, and Probes remain native and subprocess-free. See ADR 0002.
+
 ### 4.2 IPC: cache file vs. D-Bus
 
 Two refresh-signaling options, not mutually exclusive:
 
 - **File-based (v1, simplest):** Plasmoid `Timer` re-reads `~/.cache/kodebar/last.json` every N seconds. Zero IPC code. Matches what opencode-bar and codexbar-waybar do with `last.json`.
-- **D-Bus signal (v1.1, nicer UX):** backend emits a signal on `ai.kodebar` (or `org.kde.plasma.kodebar`) after each successful poll; plasmoid connects via QML's `DBusInterface` for instant updates instead of polling on a timer.
+- **D-Bus signal (v1.1, nicer UX):** backend emits `SnapshotUpdated` on `ai.kodebar` after each successful Snapshot write; the Plasmoid uses Plasma's QML signal watcher for immediate refresh while retaining Timer fallback.
 
 Start with file-based; it's a two-hour implementation and matches the proven prior art. Add D-Bus once the core widget is stable.
 
 ### 4.4 Polling interval
 
-Default: **5 minutes**, configurable via `~/.config/kodebar/config.json`. Per-provider override supported (e.g. Antigravity at 5 min, OpenCode dashboard at 10 min) to respect different rate limits. The backend runs as a **systemd `--user` timer** (one-shot: probe → write cache → exit) for M1, transitioning to a **long-lived daemon** in M3 when D-Bus instant-refresh is added.
+The backend Probe interval defaults to **5 minutes** through the `systemd --user` timer. The Plasmoid's fallback Snapshot check interval is configurable from 10 to 3600 seconds. The backend remains a one-shot process (Probe → write Snapshot → emit `SnapshotUpdated` → exit); a long-lived daemon is deferred until on-demand refresh or per-Provider schedules justify it.
 
 ### 4.3 Backend language
 
-**Rust.** See [ADR-0001](./docs/adr/0001-backend-language-rust.md). The backend is a long-lived service managing OAuth tokens and probing undocumented APIs — a single static binary with type safety is the best fit. Packaging is cleanest (AUR/Fedora/Flatpak all ship Rust binaries trivially), and there's no runtime dependency for users to install.
+**Rust.** See [ADR-0001](./docs/adr/0001-backend-language-rust.md). The backend manages OAuth tokens and probes undocumented APIs as a one-shot service — a single static binary with type safety is the best fit. Packaging is cleanest (AUR/Fedora/Flatpak all ship Rust binaries trivially), and there is no language-runtime dependency for users to install.
 
 ---
 
@@ -285,7 +293,7 @@ Schema follows opencode-bar's `status --json` shape — a flat object keyed by p
 - For OpenCode Go: three usage windows (rolling 5h / weekly / monthly) shown as stacked bars.
 - For OpenCode Zen: balance in dollars, auto-reload status.
 - For ChatGPT: subscription plan identity and available quota windows with reset countdowns.
-- Settings section inline or via `Plasmoid.configurationRequired`: enable/disable providers, refresh interval, which provider (or "highest") drives the compact view.
+- Plasma settings page: enable/disable Providers, configure the Snapshot check interval, and choose which Provider (or "highest") drives the Compact Representation.
 
 ### Iconography
 Reuse provider SVG marks from opencode-bar / CodexBar (both MIT-licensed, redistributed with NOTICE files) rather than re-drawing logos.
@@ -312,7 +320,7 @@ Given that provider APIs are undocumented, reverse-engineered, and prone to brea
 - **Backend:** ship as a standalone package (`kodebar` or `kodebar-backend`) with a `systemd --user` unit, so it can be installed/updated independently of the widget and reused by other Linux DEs. The `kodebar status --json` CLI is included.
 - **Plasmoid:** standard `metadata.json` + QML, installable via `kpackagetool6` or KDE Store (store.kde.org) — depends on the backend package.
 - **No upstream CLI dependency.** The backend reads on-disk credentials that OpenCode and Gemini CLI already write — it does not shell out to either.
-- **Project structure:** monorepo with `backend/` (Rust, single binary crate for M1) and `frontend/` (QML Plasmoid). Split into library + binary crates in M3 if the daemon needs code sharing.
+- **Project structure:** monorepo with `backend/` (Rust binary) and `frontend/` (QML Plasmoid). Split into library + binary crates if a future daemon needs code sharing.
 - **License:** MIT, with a NOTICE-file approach for redistributed provider logos.
 
 ---

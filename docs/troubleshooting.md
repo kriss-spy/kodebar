@@ -168,6 +168,28 @@ The Snapshot should contain `_meta` plus top-level Provider entries. Do not
 place credentials in the Snapshot. Its schema is documented in
 [PRD §5.5](../PRD.md#55-cache-file-schema).
 
+## Plasmoid settings or instant refresh do not behave as expected
+
+The Plasma settings page controls which Providers are displayed, which
+Provider drives the Compact Representation, and how often the Snapshot Reader
+checks the file as a fallback. It does not change the backend's five-minute
+systemd Probe schedule.
+
+After a successful Snapshot write, Kodebar broadcasts the session-bus signal
+`ai.kodebar.SnapshotUpdated`. The Plasmoid reacts immediately and also keeps
+its Timer fallback, so a missed or unavailable D-Bus signal should delay—not
+prevent—the next display update. To observe the signal while triggering a
+poll in another terminal:
+
+```bash
+dbus-monitor --session \
+  "type='signal',path='/ai/kodebar',interface='ai.kodebar',member='SnapshotUpdated'"
+```
+
+If the Snapshot changes but no signal appears, inspect the user-service
+journal for a refresh-notification failure and verify that both commands run
+in the same desktop session.
+
 ## ChatGPT plan-usage caveat
 
 ChatGPT support concerns subscription-plan quota, not OpenAI API billing. The

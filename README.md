@@ -2,7 +2,7 @@
 
 > Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
-**Status:** M2 implemented; M3 full popup and settings are next
+**Status:** M3 implemented; M4 packaging and polish are next
 
 ---
 
@@ -84,7 +84,7 @@ stat ~/.cache/kodebar/last.json
 - **M1** — Backend: Antigravity + OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
 - **M1.1** — ChatGPT plans: native read-only session Probe with plan quota windows
 - **M2** — Minimal Plasmoid: compact panel text reading the Snapshot (implemented)
-- **M3** — Full popup + in-widget settings + D-Bus instant-refresh
+- **M3** — Full Representation, Provider settings, and D-Bus instant refresh (implemented)
 - **M4** — Polish: provider logos, KDE Store packaging, troubleshooting doc
 - **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet, `state.vscdb` Antigravity fallback)
 

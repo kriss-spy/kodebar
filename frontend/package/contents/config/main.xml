@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <kcfgfile name=""/>
+
+    <group name="General">
+        <entry name="enabledAntigravity" type="Bool">
+            <label>Whether Antigravity is included in Kodebar displays.</label>
+            <default>true</default>
+        </entry>
+        <entry name="enabledChatGPT" type="Bool">
+            <label>Whether ChatGPT is included in Kodebar displays.</label>
+            <default>true</default>
+        </entry>
+        <entry name="enabledOpenCodeGo" type="Bool">
+            <label>Whether OpenCode Go is included in Kodebar displays.</label>
+            <default>true</default>
+        </entry>
+        <entry name="enabledOpenCodeZen" type="Bool">
+            <label>Whether OpenCode Zen is included in Kodebar displays.</label>
+            <default>true</default>
+        </entry>
+        <entry name="refreshIntervalSeconds" type="Int">
+            <label>How often the Snapshot Reader checks for new data, in seconds.</label>
+            <default>60</default>
+            <min>10</min>
+            <max>3600</max>
+        </entry>
+        <entry name="compactProvider" type="String">
+            <label>The Provider shown in the Compact Representation, or highest for automatic selection.</label>
+            <default>highest</default>
+        </entry>
+    </group>
+</kcfg>

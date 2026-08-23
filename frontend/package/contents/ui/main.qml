@@ -8,6 +8,16 @@ import org.kde.plasma.plasmoid
 PlasmoidItem {
     id: root
 
+    readonly property var enabledProviders: ({
+        "antigravity": Plasmoid.configuration.enabledAntigravity,
+        "chatgpt": Plasmoid.configuration.enabledChatGPT,
+        "opencode_go": Plasmoid.configuration.enabledOpenCodeGo,
+        "opencode_zen": Plasmoid.configuration.enabledOpenCodeZen
+    })
+    readonly property var selectionOptions: ({
+        "enabledProviders": root.enabledProviders,
+        "compactProvider": Plasmoid.configuration.compactProvider
+    })
     readonly property var selectedProvider: snapshotReader.selection
     readonly property string compactText: selectedProvider.providerId ? qsTr("%1 %2").arg(root.providerName(selectedProvider.providerId)).arg(selectedProvider.value) : qsTr("No data")
 
@@ -32,6 +42,13 @@ PlasmoidItem {
 
     SnapshotReader {
         id: snapshotReader
+
+        selectionOptions: root.selectionOptions
+        pollingInterval: Math.max(10, Math.min(3600, Number(Plasmoid.configuration.refreshIntervalSeconds) || 60)) * 1000
+    }
+
+    SnapshotSignalWatcher {
+        onRefreshRequested: snapshotReader.refresh()
     }
 
     compactRepresentation: PlasmaComponents.Label {
@@ -43,6 +60,11 @@ PlasmoidItem {
         opacity: root.selectedProvider.stale ? 0.6 : 1
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
+    }
+
+    fullRepresentation: FullRepresentation {
+        snapshot: snapshotReader.snapshot
+        enabledProviders: root.enabledProviders
     }
 
 }

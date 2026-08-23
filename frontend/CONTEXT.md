@@ -5,7 +5,7 @@ A KDE Plasma Plasmoid (QML) that renders AI provider usage/quota data from the B
 ## Language
 
 **Compact Representation**:
-The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary driven by the highest actionable quota Provider (or Zen balance fallback; a pinned Provider is planned for M3).
+The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary driven by the highest actionable quota Provider, a user-pinned Provider, or the Zen balance fallback.
 _Avoid_: tray icon, bar text, status text
 
 **Full Representation**:
@@ -17,7 +17,7 @@ A UI element within the Full Representation, one per enabled provider. Shows the
 _Avoid_: tab, row, entry
 
 **Snapshot Reader**:
-The QML component that reads `~/.cache/kodebar/last.json` on a Timer (M1–M2) or reacts to a D-Bus signal (M3+). The single data source for the Plasmoid.
+The QML component that reads `~/.cache/kodebar/last.json` on a Timer and refreshes immediately after the M3 D-Bus signal. The single data source for the Plasmoid.
 _Avoid_: cache reader, file watcher, poller
 
 **Stale Badge**:

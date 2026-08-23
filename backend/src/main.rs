@@ -1,5 +1,6 @@
 mod login;
 mod probe;
+mod snapshot_signal;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use login::{LoginOutcome, SystemBrowser, TerminalSecretReader};
@@ -10,6 +11,7 @@ use probe::opencode_go::{self, OpenCodeGoClient, OpenCodeGoPayload};
 use probe::opencode_zen::{self, OpenCodeZenPayload};
 use probe::{CodeAssistClient, ProbeError};
 use serde::{Deserialize, Serialize};
+use snapshot_signal::{SessionBusSnapshotNotifier, SnapshotNotifier};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -244,6 +246,18 @@ fn write_snapshot_atomic(dir: &Path, snapshot: &Snapshot) -> Result<(), String> 
         let _ = fs::remove_file(&tmp_path);
         format!("failed to rename snapshot into place: {e}")
     })?;
+    Ok(())
+}
+
+fn persist_snapshot<N: SnapshotNotifier>(
+    dir: &Path,
+    snapshot: &Snapshot,
+    notifier: &N,
+) -> Result<(), String> {
+    write_snapshot_atomic(dir, snapshot)?;
+    if let Err(error) = notifier.snapshot_updated() {
+        eprintln!("kodebar: Snapshot persisted, but refresh notification failed: {error}");
+    }
     Ok(())
 }
 
@@ -567,7 +581,7 @@ fn run(cli: Cli) -> Result<(), String> {
     match cli.command {
         Some(Command::Status { json }) => {
             let dir = default_cache_dir()?;
-            write_snapshot_atomic(&dir, &snapshot)?;
+            persist_snapshot(&dir, &snapshot, &SessionBusSnapshotNotifier)?;
             if json {
                 let encoded = serde_json::to_string(&snapshot)
                     .map_err(|e| format!("failed to encode snapshot: {e}"))?;
@@ -578,14 +592,14 @@ fn run(cli: Cli) -> Result<(), String> {
         }
         Some(Command::Poll) => {
             let dir = default_cache_dir()?;
-            write_snapshot_atomic(&dir, &snapshot)?;
+            persist_snapshot(&dir, &snapshot, &SessionBusSnapshotNotifier)?;
         }
         Some(Command::Login { .. }) => unreachable!("login returned before probing"),
         // Bare `kodebar` defaults to the status invocation: write the cache
         // then print the human-readable summary.
         None => {
             let dir = default_cache_dir()?;
-            write_snapshot_atomic(&dir, &snapshot)?;
+            persist_snapshot(&dir, &snapshot, &SessionBusSnapshotNotifier)?;
             println!("{}", render_human(&snapshot));
         }
     }
@@ -996,6 +1010,60 @@ mod tests {
         assert_eq!(read_back._meta.version, 1);
         assert!(read_back._meta.last_updated.is_none());
         assert!(read_back.providers.is_empty());
+    }
+
+    #[derive(Default)]
+    struct RecordingSnapshotNotifier {
+        notifications: AtomicUsize,
+    }
+
+    impl SnapshotNotifier for RecordingSnapshotNotifier {
+        fn snapshot_updated(&self) -> Result<(), String> {
+            self.notifications.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn successful_snapshot_persistence_emits_updated_notification() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("kodebar");
+        let notifier = RecordingSnapshotNotifier::default();
+
+        persist_snapshot(&dir, &empty_snapshot(), &notifier).unwrap();
+
+        assert!(dir.join("last.json").exists());
+        assert_eq!(notifier.notifications.load(Ordering::SeqCst), 1);
+    }
+
+    struct FailingSnapshotNotifier;
+
+    impl SnapshotNotifier for FailingSnapshotNotifier {
+        fn snapshot_updated(&self) -> Result<(), String> {
+            Err("session bus unavailable".into())
+        }
+    }
+
+    #[test]
+    fn snapshot_persistence_succeeds_when_notification_fails() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("kodebar");
+
+        persist_snapshot(&dir, &empty_snapshot(), &FailingSnapshotNotifier).unwrap();
+
+        assert!(dir.join("last.json").exists());
+    }
+
+    #[test]
+    fn failed_snapshot_persistence_does_not_emit_notification() {
+        let tmp = TempDir::new().unwrap();
+        let unusable_dir = tmp.path().join("not-a-directory");
+        fs::write(&unusable_dir, "occupied").unwrap();
+        let notifier = RecordingSnapshotNotifier::default();
+
+        assert!(persist_snapshot(&unusable_dir, &empty_snapshot(), &notifier).is_err());
+
+        assert_eq!(notifier.notifications.load(Ordering::SeqCst), 0);
     }
 
     #[test]
