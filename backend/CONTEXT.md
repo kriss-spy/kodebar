@@ -25,7 +25,7 @@ A time-bounded usage limit for a Provider. Antigravity has per-model windows wit
 _Avoid_: limit, period, tier
 
 **Credential File**:
-A file on disk containing authentication tokens that a Probe reads. Antigravity: `~/.gemini/oauth_creds.json`. OpenCode Go: `~/.local/share/opencode/auth.json` (API key). Optional OpenCode Zen dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms).
+A file on disk containing authentication tokens that a Probe reads. Antigravity: `~/.gemini/oauth_creds.json`. OpenCode Go: `~/.local/share/opencode/auth.json` (API key). ChatGPT: read-only `~/.codex/auth.json` file session (0600; never refreshed or written by Kodebar). Optional OpenCode Zen dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms).
 _Avoid_: auth file, token file
 
 **Token Refresh**:

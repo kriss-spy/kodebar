@@ -5,7 +5,7 @@ A KDE Plasma Plasmoid (QML) that renders AI provider usage/quota data from the B
 ## Language
 
 **Compact Representation**:
-The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary (e.g. `Go 14% · Zen $13.92`) driven by the highest-usage provider or a pinned provider.
+The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary driven by the highest actionable quota Provider (or Zen balance fallback; a pinned Provider is planned for M3).
 _Avoid_: tray icon, bar text, status text
 
 **Full Representation**:

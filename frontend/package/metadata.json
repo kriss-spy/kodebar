@@ -1,0 +1,21 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Kodebar contributors"
+            }
+        ],
+        "Category": "Utilities",
+        "Description": "AI provider quota and balance summary",
+        "EnabledByDefault": true,
+        "Icon": "view-statistics",
+        "Id": "ai.kodebar",
+        "License": "MIT",
+        "Name": "Kodebar",
+        "Version": "0.1.0",
+        "Website": "https://github.com/kriss-spy/kodebar"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml"
+}

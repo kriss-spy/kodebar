@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll AI provider usage with Kodebar every five minutes
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=5min
+Unit=kodebar.service
+
+[Install]
+WantedBy=timers.target

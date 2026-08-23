@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "version": 1
+  },
+  "chatgpt": {
+    "type": "quota-based",
+    "planType": "plus",
+    "limits": {
+      "codex": {
+        "primary": {
+          "usagePercent": 67
+        }
+      }
+    },
+    "stale": false
+  }
+}

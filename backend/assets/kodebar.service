@@ -1,0 +1,6 @@
+[Unit]
+Description=Poll AI provider usage with Kodebar
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kodebar poll

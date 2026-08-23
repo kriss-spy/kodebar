@@ -5,6 +5,7 @@
 //! Snapshot, Stale, Quota Window, Credential File, Token Refresh).
 
 pub mod antigravity;
+pub mod chatgpt;
 pub mod opencode_auth;
 pub mod opencode_dashboard;
 pub mod opencode_go;

@@ -141,7 +141,7 @@ The user's actual setup (verified on-disk):
 - **Antigravity 2.0** (replaces Gemini CLI) — Google OAuth creds at `~/.gemini/oauth_creds.json`, shared between Gemini CLI and Antigravity (which stores its data in `~/.gemini/antigravity/`, `~/.gemini/antigravity-cli/`, `~/.gemini/antigravity-ide/`). Active account: single Google account.
 - **OpenCode Go** — API key in OpenCode `auth.json`; `kodebar login opencode` provides a guided browser setup flow.
 - **OpenCode Zen** — balance available on the workspace root page with the same auth cookie. No separate auth entry needed.
-- **ChatGPT subscription plans** — scheduled immediately after the OpenCode backend. Local credential discovery and the plan-usage data source must be validated before the native Probe is specified.
+- **ChatGPT subscription plans** — current file-backed Codex ChatGPT session is read without refresh or mutation; quota comes from a first-party internal ChatGPT endpoint.
 - Gemini via API key (in OpenCode `auth.json` under `google`) — **not tracked** (pay-per-use, no quota window).
 
 | Provider | Auth source | Probe method | Data returned | Verified? |
@@ -149,7 +149,7 @@ The user's actual setup (verified on-disk):
 | Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API: `loadCodeAssist` + `retrieveUserQuota` | Per-model quotas, `remainingFraction`, `resetTime` | Path verified by `gusage`/`gemini-cli-usage`; creds confirmed present |
 | OpenCode Go | API key in OpenCode `auth.json` | `GET https://opencode.ai/zen/go/v1/usage` with bearer auth | Rolling 5h / weekly / monthly percentage, status, and reset time | ✅ Live-tested — returns 200 with usage data |
 | OpenCode Zen | Same workspace ID + auth cookie | Dashboard scrape: `GET https://opencode.ai/workspace/<id>` | Microcent `balance`, `reloadAmount`, `reloadTrigger`, `useBalance` | ✅ Live-tested — returns 200 with balance data |
-| ChatGPT subscription plans | Local OpenAI session credentials (to be validated) | Native plan-usage Probe; discovery spike determines the stable source | Plan identity, quota windows, usage percentages, reset times where available | Planned for M1.1 |
+| ChatGPT subscription plans | Read-only `~/.codex/auth.json` (0600) access token + account ID | `GET https://chatgpt.com/backend-api/wham/usage` | Plan identity and default/additional quota windows | ✅ Live source validated; internal compatibility route |
 
 Explicitly **out of scope for the initial release:** Claude, OpenRouter, pay-as-you-go OpenAI API billing, and browser-cookie-based providers (Cursor, etc.). ChatGPT subscription-plan quota is explicitly in scope for M1.1.
 
@@ -187,19 +187,21 @@ The official API is available:
 2. Parse SSR hydration for: `balance` (OpenCode's internal microcent amount — negative means credit/prepaid), `reloadAmount`, `reloadTrigger`, `useBalance`.
 3. Display `abs(balance) / 100,000,000` as a dollar amount rounded to cents, plus auto-reload status if configured.
 
-#### 5.3.1 ChatGPT subscription-plan probe direction
+#### 5.3.1 ChatGPT subscription-plan probe
 
-This Provider follows completion of the OpenCode Go and Zen Probes. Start with a discovery spike that validates which local OpenAI session credentials are available on supported Linux systems and which current usage source exposes subscription-plan quota without spawning an upstream CLI. Only then lock the credential and response schema into the Snapshot contract.
+1. Read the current `access_token` and `account_id` from a private, file-backed `~/.codex/auth.json` session. Keyring-backed Codex sessions are not yet supported.
+2. Never refresh or write the shared session: refresh-token rotation could race Codex. A 401 asks the user to sign in with ChatGPT in Codex again.
+3. Call `GET https://chatgpt.com/backend-api/wham/usage` with bearer auth and `ChatGPT-Account-ID`.
+4. Parse `plan_type`, the default primary/secondary windows, and `additional_rate_limits`. Normalize Unix reset timestamps to ISO 8601; accept fractional percentages and nullable windows.
+5. Emit only plan/quota data. Do not persist response identity fields, tokens, API spend, or pay-as-you-go billing data.
 
-The implementation target is plan identity plus quota windows, usage percentages, and reset times where available. It must isolate failures, preserve last-known-good data as Stale, and clearly distinguish ChatGPT subscription quota from pay-as-you-go OpenAI API billing.
+The route is first-party and live-validated but not a documented standalone OpenAI API. The documented supported interface is Codex app-server, which conflicts with Kodebar's no-upstream-process boundary. Treat this parser as an unstable compatibility boundary and preserve last-known-good data as Stale on failures.
 
 ### 5.4 Credential storage for OpenCode
 
 OpenCode Go uses the standard `~/.local/share/opencode/auth.json` (or `$XDG_DATA_HOME/opencode/auth.json`) API-key entry. Kodebar preserves unrelated provider credentials when guided login writes the `opencode` entry.
 
 OpenCode Zen's optional dashboard Probe still uses a workspace ID and auth cookie stored in `~/.config/kodebar/opencode-go.json` with `0600` file permissions:
-
-The workspace ID and auth cookie are stored in `~/.config/kodebar/opencode-go.json` with `0600` file permissions:
 
 ```json
 {
@@ -263,7 +265,8 @@ Schema follows opencode-bar's `status --json` shape — a flat object keyed by p
 }
 ```
 
-- Each provider has `stale` (true when serving cached data after a probe failure) and `lastUpdated` (ISO 8601 timestamp of the last successful probe).
+- Each Provider has `stale` (true when serving last-known-good data after a Probe failure) and `lastUpdated` (ISO 8601 timestamp of the last successful Probe).
+- Failed Providers persist `consecutiveFailures` and `retryAfter` for exponential backoff across systemd one-shot runs. These fields are omitted after a successful Probe.
 - `_meta.lastUpdated` is the overall snapshot timestamp. `_meta.version` is the schema version for forward compatibility.
 - The `kodebar status --json` CLI outputs this same schema, making it a drop-in replacement for `opencodebar status --json` in scripts.
 
@@ -299,7 +302,7 @@ Given that provider APIs are undocumented, reverse-engineered, and prone to brea
 4. **Backoff on repeated failures**, not fixed-interval retries, to avoid hammering an already-erroring endpoint.
 5. **Surface the failure state distinctly** (stale badge, dimmed icon) rather than silently showing wrong/old numbers as if current.
 6. **Handle the `remainingAmount` omission** when Antigravity/Gemini quota is at 100% — compute from `remainingFraction` instead.
-7. **Token refresh must be silent.** If the OAuth access token is expired, refresh it transparently before probing. Only surface an auth error if the refresh token itself is invalid.
+7. **Token refresh must be safe and silent where Kodebar owns it.** Antigravity refreshes transparently. ChatGPT's shared rotating session is deliberately read-only; a rejected session asks the user to sign in through Codex again.
 8. **Detect OpenCode authentication failures.** A Go API 401 requests guided login. For the optional Zen Probe, a 401 or login redirect means the dashboard cookie expired. Surface either state, not a crash or silent stale-forever.
 
 ---
@@ -325,7 +328,7 @@ See [`Milestones.md`](./Milestones.md).
 1. ~~Backend language~~ — Rust. See [ADR-0001](./docs/adr/0001-backend-language-rust.md).
 2. ~~Repo rename~~ — done. Repo is `kriss-spy/kodebar`, local folder is `~/Projects/kodebar`.
 3. ~~Provider discovery model~~ — auto-detect from OpenCode's `auth.json` (like opencode-bar). May add a `~/.config/kodebar/config.json` override overlay in the future for per-provider options (custom endpoints, disabling a provider), but v1 is zero-config auto-detect.
-4. ~~Which providers does the user actually use?~~ — Antigravity (replaces Gemini CLI), OpenCode Go, OpenCode Zen, followed by ChatGPT subscription plans. The first three Probe paths are verified; ChatGPT credential and usage-source discovery is M1.1. Gemini and OpenAI API-key billing are explicitly not tracked (pay-per-use, no subscription quota window).
+4. ~~Which providers does the user actually use?~~ — Antigravity, OpenCode Go, optional OpenCode Zen, and ChatGPT subscription plans. All four Probe paths have been implemented; ChatGPT uses an explicitly unstable internal compatibility route. Gemini and OpenAI API-key billing are not tracked.
 5. ~~Cache file location and schema~~ — `~/.cache/kodebar/last.json`. Schema matches opencode-bar's `status --json` shape (flat object keyed by provider ID, `type` field, per-provider data) with Kodebar-specific extensions (`stale`, `lastUpdated`, `_meta`). See §5.5.
 6. ~~D-Bus service name~~ — `ai.kodebar` (simple, not KDE-specific since the backend is DE-agnostic). Not blocking M1; only needed in M3 when D-Bus signals are added.
 7. ~~Backend config location / credential storage~~ — standard OpenCode `auth.json` for the Go API key, with `OPENCODE_API_KEY` override. The optional Zen Probe retains `~/.config/kodebar/opencode-go.json` (0600) for workspace ID + auth cookie.

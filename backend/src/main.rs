@@ -4,6 +4,7 @@ mod probe;
 use clap::{Parser, Subcommand, ValueEnum};
 use login::{LoginOutcome, SystemBrowser, TerminalSecretReader};
 use probe::antigravity::{self, AntigravityPayload};
+use probe::chatgpt::{self, ChatGptClient, ChatGptPayload};
 use probe::opencode_dashboard::DashboardClient;
 use probe::opencode_go::{self, OpenCodeGoClient, OpenCodeGoPayload};
 use probe::opencode_zen::{self, OpenCodeZenPayload};
@@ -13,6 +14,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
+
+const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Kodebar — Linux-native AI provider usage tracker.
 #[derive(Parser, Debug)]
@@ -63,6 +68,7 @@ struct SnapshotMeta {
 #[serde(untagged)]
 enum ProviderPayload {
     Antigravity(AntigravityPayload),
+    ChatGpt(ChatGptPayload),
     OpenCodeGo(OpenCodeGoPayload),
     OpenCodeZen(OpenCodeZenPayload),
 }
@@ -85,6 +91,16 @@ struct ProviderEntry {
     /// Actionable reason the latest Probe failed, when one is available.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Number of consecutive failed Probes, used to calculate backoff.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    consecutive_failures: u32,
+    /// Earliest time another Probe should be attempted after repeated failures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retry_after: Option<String>,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 impl ProviderEntry {
@@ -95,6 +111,8 @@ impl ProviderEntry {
             stale: false,
             last_updated: Some(now),
             error: None,
+            consecutive_failures: 0,
+            retry_after: None,
         }
     }
 
@@ -108,6 +126,8 @@ impl ProviderEntry {
             stale: true,
             last_updated: prior.last_updated,
             error: prior.error,
+            consecutive_failures: prior.consecutive_failures,
+            retry_after: prior.retry_after,
         }
     }
 }
@@ -168,12 +188,26 @@ fn now_iso() -> String {
 /// Honours `XDG_CACHE_HOME` per the Linux convention, falling back to
 /// `~/.cache/kodebar`. The cache filename is `last.json` (PRD §5.5).
 fn default_cache_dir() -> Result<PathBuf, String> {
-    let base = std::env::var("XDG_CACHE_HOME").or_else(|_| {
-        std::env::var("HOME")
-            .map(|h| format!("{h}/.cache"))
-            .map_err(|_| "XDG_CACHE_HOME and HOME are both unset".to_string())
-    })?;
-    Ok(PathBuf::from(base).join("kodebar"))
+    cache_dir_from_env(
+        std::env::var("XDG_CACHE_HOME").ok(),
+        std::env::var("HOME").ok(),
+    )
+}
+
+fn cache_dir_from_env(
+    xdg_cache_home: Option<String>,
+    home: Option<String>,
+) -> Result<PathBuf, String> {
+    if let Some(path) = xdg_cache_home
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        return Ok(path.join("kodebar"));
+    }
+    if let Some(path) = home.map(PathBuf::from).filter(|path| path.is_absolute()) {
+        return Ok(path.join(".cache/kodebar"));
+    }
+    Err("cannot locate the Snapshot without an absolute XDG_CACHE_HOME or HOME".into())
 }
 
 /// Atomically write the snapshot as JSON to `<dir>/last.json`.
@@ -222,46 +256,6 @@ fn render_human(snapshot: &Snapshot) -> String {
     }
 }
 
-/// Run the Antigravity Probe against an injectable client and merge the
-/// result into `providers`. On failure the provider is flagged `stale`
-/// rather than dropped — last-known-good from `prior` is preserved (PRD
-/// §7.1, §7.5). `ProbeError::NoCredentials` means the provider isn't
-/// configured on this machine, so the entry is simply omitted.
-fn probe_antigravity<C: CodeAssistClient>(
-    client: &C,
-    prior: Option<ProviderEntry>,
-    providers: &mut BTreeMap<String, ProviderEntry>,
-) {
-    match antigravity::run(client, &antigravity::gemini_dir(), true) {
-        Ok(payload) => {
-            providers.insert(
-                "antigravity".to_string(),
-                ProviderEntry::fresh(ProviderPayload::Antigravity(payload), now_iso()),
-            );
-        }
-        Err(ProbeError::NoCredentials(msg)) => {
-            // Provider not configured — omit silently (no last-known-good to
-            // serve, and no stale badge to show).
-            eprintln!("kodebar: antigravity skipped: {msg}");
-        }
-        Err(ProbeError::RateLimited) | Err(_) => {
-            // Back off and serve last-known-good, flagged stale (PRD §5.1,
-            // §7.1, §7.4). With no prior data, emit an empty stale entry so
-            // the UI can still show the provider as "unavailable / stale".
-            let entry = match prior {
-                Some(p) => ProviderEntry::stale_from_prior(p),
-                None => ProviderEntry::fresh(
-                    ProviderPayload::Antigravity(AntigravityPayload::empty()),
-                    // No successful probe has ever happened.
-                    now_iso(),
-                )
-                .stale_with_no_prior(),
-            };
-            providers.insert("antigravity".to_string(), entry);
-        }
-    }
-}
-
 impl ProviderEntry {
     /// Mark a fresh-built empty entry as stale with no prior successful
     /// Probe (so `last_updated` is `None`).
@@ -271,6 +265,8 @@ impl ProviderEntry {
             stale: true,
             last_updated: None,
             error: self.error,
+            consecutive_failures: self.consecutive_failures,
+            retry_after: self.retry_after,
         }
     }
 
@@ -278,49 +274,39 @@ impl ProviderEntry {
         self.error = Some(error);
         self
     }
+
+    fn after_failure(mut self, now: chrono::DateTime<chrono::Utc>) -> Self {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        let exponent = self.consecutive_failures.saturating_sub(1).min(4);
+        let delay_seconds = (300_i64 * (1_i64 << exponent)).min(3_600);
+        self.retry_after = Some(
+            (now + chrono::TimeDelta::seconds(delay_seconds))
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        );
+        self
+    }
+
+    fn is_backing_off(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.retry_after
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|retry_after| retry_after > now)
+    }
 }
 
 fn probe_error_message(error: &ProbeError) -> String {
     error.user_message()
 }
 
-fn probe_opencode_zen<C: DashboardClient>(
-    client: &C,
-    credentials_path: &Path,
-    prior: Option<ProviderEntry>,
-    providers: &mut BTreeMap<String, ProviderEntry>,
-) {
-    merge_probe_result(
-        "opencode_zen",
-        opencode_zen::run(client, credentials_path).map(ProviderPayload::OpenCodeZen),
-        prior,
-        ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
-        providers,
-    );
-}
-
-fn probe_opencode_go<C: OpenCodeGoClient>(
-    client: &C,
-    credentials_path: &Path,
-    prior: Option<ProviderEntry>,
-    providers: &mut BTreeMap<String, ProviderEntry>,
-) {
-    merge_probe_result(
-        "opencode_go",
-        opencode_go::run(client, credentials_path).map(ProviderPayload::OpenCodeGo),
-        prior,
-        ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
-        providers,
-    );
-}
-
-fn merge_probe_result(
+fn merge_probe_result_at(
     provider_id: &str,
     result: Result<ProviderPayload, ProbeError>,
     prior: Option<ProviderEntry>,
     empty_payload: ProviderPayload,
     providers: &mut BTreeMap<String, ProviderEntry>,
+    now: chrono::DateTime<chrono::Utc>,
 ) {
+    let now_iso = || now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     match result {
         Ok(payload) => {
             providers.insert(provider_id.into(), ProviderEntry::fresh(payload, now_iso()));
@@ -334,43 +320,176 @@ fn merge_probe_result(
                 Some(prior) => ProviderEntry::stale_from_prior(prior),
                 None => ProviderEntry::fresh(empty_payload, now_iso()).stale_with_no_prior(),
             }
-            .with_error(message);
+            .with_error(message)
+            .after_failure(now);
             providers.insert(provider_id.into(), entry);
         }
     }
+}
+
+type ProbeRun = Box<dyn FnOnce() -> Result<ProviderPayload, ProbeError> + Send + 'static>;
+
+struct ProbeTask {
+    provider_id: &'static str,
+    prior: Option<ProviderEntry>,
+    empty_payload: ProviderPayload,
+    run: ProbeRun,
+}
+
+impl ProbeTask {
+    fn new<F>(
+        provider_id: &'static str,
+        prior: Option<ProviderEntry>,
+        empty_payload: ProviderPayload,
+        run: F,
+    ) -> Self
+    where
+        F: FnOnce() -> Result<ProviderPayload, ProbeError> + Send + 'static,
+    {
+        Self {
+            provider_id,
+            prior,
+            empty_payload,
+            run: Box::new(run),
+        }
+    }
+}
+
+fn run_probe_tasks(tasks: Vec<ProbeTask>, timeout: Duration) -> BTreeMap<String, ProviderEntry> {
+    run_probe_tasks_at(tasks, timeout, chrono::Utc::now())
+}
+
+fn run_probe_tasks_at(
+    tasks: Vec<ProbeTask>,
+    timeout: Duration,
+    now: chrono::DateTime<chrono::Utc>,
+) -> BTreeMap<String, ProviderEntry> {
+    let deadline = Instant::now() + timeout;
+    let (sender, receiver) = mpsc::channel();
+    let mut pending = BTreeMap::new();
+    let mut providers = BTreeMap::new();
+
+    for task in tasks {
+        if task
+            .prior
+            .as_ref()
+            .is_some_and(|prior| prior.is_backing_off(now))
+        {
+            providers.insert(task.provider_id.into(), task.prior.unwrap());
+            continue;
+        }
+        let provider_id = task.provider_id;
+        pending.insert(provider_id, (task.prior, task.empty_payload));
+        let sender = sender.clone();
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task.run))
+                .unwrap_or_else(|_| Err(ProbeError::Io("Probe panicked".into())));
+            let _ = sender.send((provider_id, result));
+        });
+    }
+    drop(sender);
+
+    while !pending.is_empty() {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        let Ok((provider_id, result)) = receiver.recv_timeout(remaining) else {
+            break;
+        };
+        if let Some((prior, empty_payload)) = pending.remove(provider_id) {
+            merge_probe_result_at(
+                provider_id,
+                result,
+                prior,
+                empty_payload,
+                &mut providers,
+                now,
+            );
+        }
+    }
+
+    for (provider_id, (prior, empty_payload)) in pending {
+        merge_probe_result_at(
+            provider_id,
+            Err(ProbeError::Io(format!("Probe timed out after {timeout:?}"))),
+            prior,
+            empty_payload,
+            &mut providers,
+            now,
+        );
+    }
+    providers
 }
 
 /// Build the current Snapshot by probing every configured provider. Probes
 /// are independent and isolated — one failing must not block others (PRD
 /// §7.3). The prior Snapshot (read from the cache file) supplies
 /// last-known-good data for the Stale path.
-fn build_snapshot<C: CodeAssistClient, D: DashboardClient, G: OpenCodeGoClient>(
-    code_assist_client: &C,
-    dashboard_client: &D,
-    go_client: &G,
+fn build_snapshot<C, D, G, H>(
+    code_assist_client: Arc<C>,
+    dashboard_client: Arc<D>,
+    go_client: Arc<G>,
+    chatgpt_client: Arc<H>,
     dashboard_credentials_path: &Path,
-    opencode_auth_path: &Path,
-) -> Snapshot {
-    let prior = load_prior_snapshot().providers;
-    let mut providers = BTreeMap::new();
-
-    probe_antigravity(
-        code_assist_client,
-        prior.get("antigravity").cloned(),
-        &mut providers,
-    );
-    probe_opencode_go(
-        go_client,
-        opencode_auth_path,
-        prior.get("opencode_go").cloned(),
-        &mut providers,
-    );
-    probe_opencode_zen(
-        dashboard_client,
-        dashboard_credentials_path,
-        prior.get("opencode_zen").cloned(),
-        &mut providers,
-    );
+    opencode_auth_path: Result<PathBuf, ProbeError>,
+    chatgpt_auth_path: Result<PathBuf, ProbeError>,
+) -> Snapshot
+where
+    C: CodeAssistClient + Send + Sync + 'static,
+    D: DashboardClient + Send + Sync + 'static,
+    G: OpenCodeGoClient + Send + Sync + 'static,
+    H: ChatGptClient + Send + Sync + 'static,
+{
+    let mut prior = load_prior_snapshot().providers;
+    let antigravity_client = Arc::clone(&code_assist_client);
+    let zen_credentials_path = dashboard_credentials_path.to_owned();
+    let tasks = vec![
+        ProbeTask::new(
+            "antigravity",
+            prior.remove("antigravity"),
+            ProviderPayload::Antigravity(AntigravityPayload::empty()),
+            move || {
+                antigravity::run(
+                    antigravity_client.as_ref(),
+                    &antigravity::gemini_dir(),
+                    true,
+                )
+                .map(ProviderPayload::Antigravity)
+            },
+        ),
+        ProbeTask::new(
+            "chatgpt",
+            prior.remove("chatgpt"),
+            ProviderPayload::ChatGpt(ChatGptPayload::empty()),
+            move || match chatgpt_auth_path {
+                Ok(path) => {
+                    chatgpt::run(chatgpt_client.as_ref(), &path).map(ProviderPayload::ChatGpt)
+                }
+                Err(error) => Err(error),
+            },
+        ),
+        ProbeTask::new(
+            "opencode_go",
+            prior.remove("opencode_go"),
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            move || match opencode_auth_path {
+                Ok(path) => {
+                    opencode_go::run(go_client.as_ref(), &path).map(ProviderPayload::OpenCodeGo)
+                }
+                Err(error) => Err(error),
+            },
+        ),
+        ProbeTask::new(
+            "opencode_zen",
+            prior.remove("opencode_zen"),
+            ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
+            move || {
+                opencode_zen::run(dashboard_client.as_ref(), &zen_credentials_path)
+                    .map(ProviderPayload::OpenCodeZen)
+            },
+        ),
+    ];
+    let providers = run_probe_tasks(tasks, PROBE_TIMEOUT);
 
     let last_updated = if providers.is_empty() {
         None
@@ -434,24 +553,26 @@ fn run(cli: Cli) -> Result<(), String> {
         .map_err(|e| format!("failed to init OpenCode dashboard HTTP client: {e:?}"))?;
     let go_client = probe::opencode_go::ReqwestOpenCodeGoClient::new()
         .map_err(|e| format!("failed to init OpenCode Go HTTP client: {e:?}"))?;
-    let opencode_auth_path =
-        probe::opencode_auth::default_auth_path().map_err(|error| error.user_message())?;
+    let chatgpt_client = probe::chatgpt::ReqwestChatGptClient::new()
+        .map_err(|e| format!("failed to init ChatGPT HTTP client: {e:?}"))?;
     let snapshot = build_snapshot(
-        &code_assist_client,
-        &dashboard_client,
-        &go_client,
+        Arc::new(code_assist_client),
+        Arc::new(dashboard_client),
+        Arc::new(go_client),
+        Arc::new(chatgpt_client),
         &probe::opencode_dashboard::default_credentials_path(),
-        &opencode_auth_path,
+        probe::opencode_auth::default_auth_path(),
+        probe::chatgpt::default_auth_path(),
     );
     match cli.command {
         Some(Command::Status { json }) => {
+            let dir = default_cache_dir()?;
+            write_snapshot_atomic(&dir, &snapshot)?;
             if json {
                 let encoded = serde_json::to_string(&snapshot)
                     .map_err(|e| format!("failed to encode snapshot: {e}"))?;
                 println!("{encoded}");
             } else {
-                let dir = default_cache_dir()?;
-                write_snapshot_atomic(&dir, &snapshot)?;
                 println!("{}", render_human(&snapshot));
             }
         }
@@ -488,6 +609,9 @@ mod tests {
     use probe::opencode_dashboard::{DashboardClient, DashboardCredentials, DashboardResponse};
     use probe::opencode_go::{GoApiResponse, OpenCodeGoClient};
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::time::Duration;
     use tempfile::TempDir;
 
     struct MockDashboardClient {
@@ -558,6 +682,8 @@ mod tests {
             stale: true,
             last_updated: Some("2026-07-02T11:17:00Z".to_string()),
             error: None,
+            consecutive_failures: 0,
+            retry_after: None,
         };
         let v: serde_json::Value = serde_json::to_value(&entry).unwrap();
         // Common Kodebar extensions sit at the top level alongside the
@@ -576,6 +702,8 @@ mod tests {
             stale: true,
             last_updated: None,
             error: Some("session expired — re-login at opencode.ai".into()),
+            consecutive_failures: 1,
+            retry_after: Some("2026-08-22T01:05:00Z".into()),
         };
 
         let value = serde_json::to_value(entry).unwrap();
@@ -584,6 +712,21 @@ mod tests {
         assert_eq!(value["balanceFormatted"], "$0.00");
         assert_eq!(value["stale"], true);
         assert_eq!(value["error"], "session expired — re-login at opencode.ai");
+    }
+
+    #[test]
+    fn chatgpt_entry_serializes_plan_identity_and_common_state() {
+        let entry = ProviderEntry::fresh(
+            ProviderPayload::ChatGpt(ChatGptPayload::empty()),
+            "2026-08-23T00:00:00Z".into(),
+        );
+
+        let value = serde_json::to_value(entry).unwrap();
+
+        assert_eq!(value["type"], "quota-based");
+        assert_eq!(value["planType"], "unknown");
+        assert!(value["limits"]["codex"].is_object());
+        assert_eq!(value["stale"], false);
     }
 
     #[test]
@@ -600,7 +743,14 @@ mod tests {
         };
         let mut providers = BTreeMap::new();
 
-        probe_opencode_zen(&client, &credentials_path, None, &mut providers);
+        merge_probe_result_at(
+            "opencode_zen",
+            opencode_zen::run(&client, &credentials_path).map(ProviderPayload::OpenCodeZen),
+            None,
+            ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
+            &mut providers,
+            chrono::Utc::now(),
+        );
 
         let value = serde_json::to_value(&providers["opencode_zen"]).unwrap();
         assert_eq!(value["balanceFormatted"], "$13.92");
@@ -625,7 +775,14 @@ mod tests {
         };
         let mut providers = BTreeMap::new();
 
-        probe_opencode_go(&client, &credentials_path, None, &mut providers);
+        merge_probe_result_at(
+            "opencode_go",
+            opencode_go::run(&client, &credentials_path).map(ProviderPayload::OpenCodeGo),
+            None,
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            &mut providers,
+            chrono::Utc::now(),
+        );
 
         let value = serde_json::to_value(&providers["opencode_go"]).unwrap();
         assert_eq!(value["windows"]["rolling"]["usagePercent"], 14);
@@ -647,17 +804,181 @@ mod tests {
         );
         let mut providers = BTreeMap::new();
 
-        probe_opencode_zen(
-            &client,
-            Path::new("/definitely/missing/opencode-go.json"),
+        merge_probe_result_at(
+            "opencode_zen",
+            opencode_zen::run(&client, Path::new("/definitely/missing/opencode-go.json"))
+                .map(ProviderPayload::OpenCodeZen),
             Some(prior),
+            ProviderPayload::OpenCodeZen(OpenCodeZenPayload::empty()),
             &mut providers,
+            chrono::Utc::now(),
         );
 
         let value = serde_json::to_value(&providers["opencode_zen"]).unwrap();
         assert_eq!(value["stale"], true);
         assert_eq!(value["lastUpdated"], "2026-08-22T01:02:03Z");
         assert!(value["error"].as_str().unwrap().contains("does not exist"));
+    }
+
+    #[test]
+    fn probe_tasks_start_concurrently_and_isolate_failure_and_timeout() {
+        let barrier = Arc::new(Barrier::new(3));
+        let tasks = ["one", "two", "three"].map(|provider_id| {
+            let barrier = Arc::clone(&barrier);
+            ProbeTask::new(
+                provider_id,
+                None,
+                ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+                move || {
+                    barrier.wait();
+                    match provider_id {
+                        "two" => Err(ProbeError::Io("provider unavailable".into())),
+                        "three" => {
+                            std::thread::sleep(Duration::from_millis(200));
+                            Ok(ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()))
+                        }
+                        _ => Ok(ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty())),
+                    }
+                },
+            )
+        });
+
+        let providers = run_probe_tasks(tasks.into(), Duration::from_millis(100));
+
+        assert!(!providers["one"].stale);
+        assert!(providers["two"].stale);
+        assert_eq!(
+            providers["two"].error.as_deref(),
+            Some("provider unavailable")
+        );
+        assert!(providers["three"].stale);
+        assert!(
+            providers["three"]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("timed out")
+        );
+    }
+
+    #[test]
+    fn timed_out_probe_preserves_last_successful_data_without_delaying_snapshot() {
+        let prior = ProviderEntry::fresh(
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            "2026-08-22T01:02:03Z".into(),
+        );
+        let task = ProbeTask::new(
+            "opencode_go",
+            Some(prior),
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            || {
+                std::thread::sleep(Duration::from_secs(1));
+                Ok(ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()))
+            },
+        );
+        let started = Instant::now();
+
+        let providers = run_probe_tasks(vec![task], Duration::from_millis(100));
+
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert!(providers["opencode_go"].stale);
+        assert_eq!(
+            providers["opencode_go"].last_updated.as_deref(),
+            Some("2026-08-22T01:02:03Z")
+        );
+        assert!(
+            providers["opencode_go"]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("timed out")
+        );
+    }
+
+    #[test]
+    fn repeated_failure_backoff_skips_probe_until_retry_time() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-08-22T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let failed = ProbeTask::new(
+            "opencode_go",
+            None,
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            || Err(ProbeError::Io("network down".into())),
+        );
+        let first = run_probe_tasks_at(vec![failed], Duration::from_secs(1), now);
+        let prior: ProviderEntry =
+            serde_json::from_value(serde_json::to_value(&first["opencode_go"]).unwrap()).unwrap();
+        assert_eq!(prior.consecutive_failures, 1);
+        assert_eq!(prior.retry_after.as_deref(), Some("2026-08-22T00:05:00Z"));
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_in_probe = Arc::clone(&attempts);
+        let retry = ProbeTask::new(
+            "opencode_go",
+            Some(prior),
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            move || {
+                attempts_in_probe.fetch_add(1, Ordering::SeqCst);
+                Ok(ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()))
+            },
+        );
+
+        let providers = run_probe_tasks_at(
+            vec![retry],
+            Duration::from_secs(1),
+            now + chrono::TimeDelta::minutes(1),
+        );
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 0);
+        assert!(providers["opencode_go"].stale);
+        assert_eq!(providers["opencode_go"].consecutive_failures, 1);
+
+        let fails_again = ProbeTask::new(
+            "opencode_go",
+            Some(providers["opencode_go"].clone()),
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            || Err(ProbeError::Io("still down".into())),
+        );
+        let second = run_probe_tasks_at(
+            vec![fails_again],
+            Duration::from_secs(1),
+            now + chrono::TimeDelta::minutes(5),
+        );
+
+        assert_eq!(second["opencode_go"].consecutive_failures, 2);
+        assert_eq!(
+            second["opencode_go"].retry_after.as_deref(),
+            Some("2026-08-22T00:15:00Z")
+        );
+    }
+
+    #[test]
+    fn repeated_failure_backoff_is_capped_at_one_hour() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-08-22T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let prior = ProviderEntry {
+            consecutive_failures: 4,
+            ..ProviderEntry::fresh(
+                ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+                "2026-08-21T00:00:00Z".into(),
+            )
+        };
+        let failure = ProbeTask::new(
+            "opencode_go",
+            Some(prior),
+            ProviderPayload::OpenCodeGo(OpenCodeGoPayload::empty()),
+            || Err(ProbeError::Io("still down".into())),
+        );
+
+        let result = run_probe_tasks_at(vec![failure], Duration::from_secs(1), now);
+
+        assert_eq!(result["opencode_go"].consecutive_failures, 5);
+        assert_eq!(
+            result["opencode_go"].retry_after.as_deref(),
+            Some("2026-08-22T01:00:00Z")
+        );
     }
 
     #[test]
@@ -675,6 +996,22 @@ mod tests {
         assert_eq!(read_back._meta.version, 1);
         assert!(read_back._meta.last_updated.is_none());
         assert!(read_back.providers.is_empty());
+    }
+
+    #[test]
+    fn cache_dir_ignores_relative_xdg_path_and_uses_absolute_home() {
+        assert_eq!(
+            cache_dir_from_env(Some("relative/cache".into()), Some("/home/tester".into())).unwrap(),
+            PathBuf::from("/home/tester/.cache/kodebar")
+        );
+    }
+
+    #[test]
+    fn cache_dir_rejects_relative_xdg_path_and_relative_home() {
+        let error = cache_dir_from_env(Some("relative/cache".into()), Some("relative/home".into()))
+            .unwrap_err();
+
+        assert!(error.contains("absolute"));
     }
 
     #[test]

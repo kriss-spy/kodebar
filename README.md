@@ -2,7 +2,7 @@
 
 > Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
-**Status:** M1 WIP
+**Status:** M2 implemented; M3 full popup and settings are next
 
 ---
 
@@ -36,9 +36,9 @@ Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
 | Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API (`retrieveUserQuota`) | Path confirmed by prior art |
 | OpenCode Go | API key in OpenCode `auth.json` | Official `GET /zen/go/v1/usage` API | ✅ Live-tested |
 | OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
-| ChatGPT subscription plans | Local OpenAI session credentials (to be validated) | Native plan-usage Probe (discovery required) | Planned immediately after M1 |
+| ChatGPT subscription plans | Read-only `~/.codex/auth.json` session | Native ChatGPT quota Probe | ✅ Live source validated; internal endpoint |
 
-Antigravity (replacing Gemini CLI) and OpenCode Go are the primary providers. OpenCode Zen balance is shown in the panel. ChatGPT subscription-plan usage is the next provider target after the OpenCode backend is complete; it tracks plan quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
+Antigravity (replacing Gemini CLI), OpenCode Go, and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
 
 ## Prerequisites
 
@@ -48,6 +48,9 @@ Before the backend can probe anything, you must already have authenticated local
 gemini login      # or agy login — both write ~/.gemini/oauth_creds.json
 kodebar login opencode  # opens the browser, validates the key, writes OpenCode auth.json
 
+# ChatGPT: sign in with ChatGPT in Codex once. Kodebar reads the current
+# ~/.codex/auth.json session without refreshing or modifying it.
+
 # Optional: OpenCode Zen dashboard balance still needs a browser session:
 # 1. Visit https://opencode.ai/workspace/<your-workspace-id> in a browser
 # 2. Copy workspace ID (wrk_...) and the "auth" cookie from DevTools
@@ -55,11 +58,32 @@ kodebar login opencode  # opens the browser, validates the key, writes OpenCode 
 #    { "workspaceId": "wrk_...", "authCookie": "Fe26.2**..." }
 ```
 
+## Autostart
+
+After installing the `kodebar` binary at `/usr/bin/kodebar`, install and enable
+the systemd user timer:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp backend/assets/kodebar.service backend/assets/kodebar.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now kodebar.timer
+```
+
+The first poll runs after a two-minute startup delay, then every five minutes.
+Check the timer and recent Probe logs with:
+
+```bash
+systemctl --user list-timers kodebar.timer
+journalctl --user -u kodebar.service
+stat ~/.cache/kodebar/last.json
+```
+
 ## Milestones
 
 - **M1** — Backend: Antigravity + OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
-- **M1.1** — ChatGPT plans: validate local auth and usage data, then add a native plan-usage Probe
-- **M2** — Minimal Plasmoid: compact panel text reading the cache
+- **M1.1** — ChatGPT plans: native read-only session Probe with plan quota windows
+- **M2** — Minimal Plasmoid: compact panel text reading the Snapshot (implemented)
 - **M3** — Full popup + in-widget settings + D-Bus instant-refresh
 - **M4** — Polish: provider logos, KDE Store packaging, troubleshooting doc
 - **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet, `state.vscdb` Antigravity fallback)
