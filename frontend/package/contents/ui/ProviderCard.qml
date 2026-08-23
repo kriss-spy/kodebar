@@ -29,6 +29,13 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
 
+            ProviderIcon {
+                Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+                Layout.preferredHeight: Kirigami.Units.iconSizes.medium
+                providerId: root.card.providerId
+                opacity: root.card.stale ? 0.6 : 1
+            }
+
             Kirigami.Heading {
                 Layout.fillWidth: true
                 level: 3

@@ -6,16 +6,16 @@
                 "Name": "Kodebar contributors"
             }
         ],
-        "Category": "Utilities",
-        "Description": "AI provider quota and balance summary",
+        "BugReportUrl": "https://github.com/kriss-spy/kodebar/issues",
+        "Category": "System Information",
+        "Description": "Track AI provider quota and balance from Plasma",
         "EnabledByDefault": true,
         "Icon": "view-statistics",
-        "Id": "ai.kodebar",
+        "Id": "io.github.kriss_spy.kodebar",
         "License": "MIT",
         "Name": "Kodebar",
         "Version": "0.1.0",
         "Website": "https://github.com/kriss-spy/kodebar"
     },
-    "X-Plasma-API-Minimum-Version": "6.0",
-    "X-Plasma-MainScript": "ui/main.qml"
+    "X-Plasma-API-Minimum-Version": "6.0"
 }

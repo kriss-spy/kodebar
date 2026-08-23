@@ -1,11 +1,14 @@
+import "UsagePresentation.js" as UsagePresentation
 import QtQuick
 import QtQuick.Layouts
+import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
 
 ColumnLayout {
     id: root
 
     required property var quota
+    readonly property string usageState: UsagePresentation.state(Number(root.quota.usagePercent), false)
 
     spacing: 3
 
@@ -20,6 +23,9 @@ ColumnLayout {
 
         PlasmaComponents.Label {
             text: qsTr("%1%").arg(Math.round(root.quota.usagePercent))
+            color: root.usageState === "critical" ? Kirigami.Theme.negativeTextColor
+                : root.usageState === "warning" ? Kirigami.Theme.neutralTextColor
+                : Kirigami.Theme.positiveTextColor
         }
     }
 

@@ -16,7 +16,7 @@ timeout 8s dbus-run-session -- env \
     XDG_CACHE_HOME="$test_root/cache" \
     XDG_DATA_HOME="$test_root/data" \
     QT_QPA_PLATFORM=offscreen \
-    plasmawindowed ai.kodebar >"$test_root/plasmawindowed.log" 2>&1
+    plasmawindowed io.github.kriss_spy.kodebar >"$test_root/plasmawindowed.log" 2>&1
 status=$?
 set -e
 

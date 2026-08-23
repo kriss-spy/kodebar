@@ -147,3 +147,6 @@ assert.equal(chatGptCard.error, "provider returned HTTP 403");
 
 assert.equal(context.ageText("2026-08-23T00:55:00Z", Date.parse("2026-08-23T01:00:00Z")), "5m ago");
 assert.equal(context.ageText("", Date.now()), "Never");
+assert.equal(context.providerCompactTitle("opencode_go"), "Go");
+assert.equal(context.providerCompactTitle("opencode_zen"), "Zen");
+assert.equal(context.iconSource("unknown"), "view-statistics");

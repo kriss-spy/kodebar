@@ -2,7 +2,7 @@
 
 > Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
-**Status:** M3 implemented; M4 packaging and polish are next
+**Status:** M4 implemented; M5 Provider expansion is next
 
 ---
 
@@ -79,13 +79,41 @@ journalctl --user -u kodebar.service
 stat ~/.cache/kodebar/last.json
 ```
 
+## Install the Plasma widget
+
+For a development checkout, install the Plasmoid directly:
+
+```bash
+kpackagetool6 --type Plasma/Applet --install frontend/package
+```
+
+M2/M3 development builds used the temporary Plasmoid ID `ai.kodebar`. Before
+installing M4/0.1.0, remove that package and add Kodebar to the panel again;
+Plasma does not migrate the old widget instance or its settings:
+
+```bash
+kpackagetool6 --type Plasma/Applet --remove ai.kodebar
+```
+
+After installing 0.1.0 or newer, use `--upgrade` for subsequent versions. To
+create and install the same versioned archive used for KDE Store releases:
+
+```bash
+frontend/scripts/package-plasmoid.sh
+kpackagetool6 --type Plasma/Applet --install dist/kodebar-0.1.0.plasmoid
+```
+
+The Plasmoid requires the native backend and reads its
+`~/.cache/kodebar/last.json` Snapshot. See
+[`docs/releasing.md`](./docs/releasing.md) for the release checklist.
+
 ## Milestones
 
 - **M1** — Backend: Antigravity + OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
 - **M1.1** — ChatGPT plans: native read-only session Probe with plan quota windows
 - **M2** — Minimal Plasmoid: compact panel text reading the Snapshot (implemented)
 - **M3** — Full Representation, Provider settings, and D-Bus instant refresh (implemented)
-- **M4** — Polish: provider logos, KDE Store packaging, troubleshooting doc
+- **M4** — Provider identity, KDE Store packaging, and release polish (implemented)
 - **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet, `state.vscdb` Antigravity fallback)
 
 See [`Milestones.md`](./Milestones.md) for details.

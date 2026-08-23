@@ -1,7 +1,7 @@
 # PRD: Kodebar — AI Provider Usage Tracker for Linux
 
 **Project name:** `kodebar`
-**Status:** Implemented through M3
+**Status:** Implemented through M4
 **Author:** human + AI
 **Reference:** [opgginc/opencode-bar](https://github.com/opgginc/opencode-bar) (macOS, Swift) — the OpenCode equivalent of CodexBar, already probes 20+ providers including Gemini CLI. Also: [wakamex/gemini-cli-usage](https://github.com/wakamex/gemini-cli-usage), [a-hariti/gusage](https://github.com/a-hariti/gusage) — standalone Gemini quota monitors that reverse-engineer the Code Assist API.
 

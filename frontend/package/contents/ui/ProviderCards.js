@@ -1,16 +1,26 @@
 .pragma library
 
 const PROVIDERS = [
-    { id: "antigravity", title: qsTr("Antigravity"), setup: qsTr("Sign in with Gemini CLI or Antigravity") },
-    { id: "opencode_go", title: qsTr("OpenCode Go"), setup: qsTr("Run kodebar login opencode") },
-    { id: "opencode_zen", title: qsTr("OpenCode Zen"), setup: qsTr("Configure optional OpenCode Zen credentials") },
-    { id: "chatgpt", title: qsTr("ChatGPT"), setup: qsTr("Sign in with ChatGPT in Codex") },
+    { id: "antigravity", title: qsTr("Antigravity"), compactTitle: qsTr("Antigravity"), icon: "../images/provider-antigravity.svg", setup: qsTr("Sign in with Gemini CLI or Antigravity") },
+    { id: "opencode_go", title: qsTr("OpenCode Go"), compactTitle: qsTr("Go"), icon: "../images/provider-opencode-go.svg", setup: qsTr("Run kodebar login opencode") },
+    { id: "opencode_zen", title: qsTr("OpenCode Zen"), compactTitle: qsTr("Zen"), icon: "../images/provider-opencode.svg", setup: qsTr("Configure optional OpenCode Zen credentials") },
+    { id: "chatgpt", title: qsTr("ChatGPT"), compactTitle: qsTr("ChatGPT"), icon: "../images/provider-chatgpt.svg", setup: qsTr("Sign in with ChatGPT in Codex") },
 ];
 
 function providerDefinition(providerId) {
     return PROVIDERS.find(function(provider) {
         return provider.id === providerId;
     });
+}
+
+function providerCompactTitle(providerId) {
+    const definition = providerDefinition(providerId);
+    return definition ? definition.compactTitle : providerId;
+}
+
+function iconSource(providerId) {
+    const definition = providerDefinition(providerId);
+    return definition ? definition.icon : "view-statistics";
 }
 
 function countdown(resetTime, nowMs) {
