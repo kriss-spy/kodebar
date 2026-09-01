@@ -11,7 +11,7 @@ vm.runInContext(source, context, { filename: helperPath });
 
 const selected = context.selectProvider({
     _meta: { version: 1 },
-    antigravity: { type: "quota-based", usagePercentage: 42, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 42 } } }, stale: false },
     opencode_go: {
         type: "quota-based",
         windows: { rolling: { usagePercent: 71 } },
@@ -21,7 +21,7 @@ const selected = context.selectProvider({
 });
 
 assert.equal(selected.providerId, "opencode_go");
-assert.equal(selected.value, "71%");
+assert.equal(selected.value, "29% left");
 assert.equal(selected.stale, false);
 
 const zenOnly = context.selectProvider({
@@ -41,15 +41,15 @@ const deterministicTie = context.selectProvider({
         type: "quota-based",
         windows: { rolling: { usagePercent: 50, status: "ok" } },
     },
-    antigravity: { type: "quota-based", usagePercentage: 50 },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 50 } } } },
 });
-assert.equal(deterministicTie.providerId, "antigravity");
+assert.equal(deterministicTie.providerId, "chatgpt");
 
 const noPriorData = context.selectProvider({
     _meta: { version: 1 },
-    antigravity: {
+    chatgpt: {
         type: "quota-based",
-        usagePercentage: 0,
+        limits: { codex: { primary: { usagePercent: 0 } } },
         stale: true,
         lastUpdated: null,
     },
@@ -77,7 +77,7 @@ const chatGptHighest = context.selectProvider({
     },
 });
 assert.equal(chatGptHighest.providerId, "chatgpt");
-assert.equal(chatGptHighest.value, "83%");
+assert.equal(chatGptHighest.value, "17.5% left");
 
 const exhaustedGo = context.selectProvider({
     _meta: { version: 1 },
@@ -86,65 +86,73 @@ const exhaustedGo = context.selectProvider({
         windows: { rolling: { usagePercent: 100, status: "rate-limited" } },
         stale: false,
     },
-    antigravity: { type: "quota-based", usagePercentage: 60, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 60 } } }, stale: false },
 });
 assert.equal(exhaustedGo.providerId, "opencode_go");
-assert.equal(exhaustedGo.value, "100%");
+assert.equal(exhaustedGo.value, "0% left");
 
 const disabledHighest = context.selectProvider({
-    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 90 } } }, stale: false },
     opencode_go: {
         type: "quota-based",
         windows: { rolling: { usagePercent: 40, status: "ok" } },
         stale: false,
     },
 }, {
-    enabledProviders: { antigravity: false, opencode_go: true },
+    enabledProviders: { chatgpt: false, opencode_go: true },
     compactProvider: "highest",
 });
 assert.equal(disabledHighest.providerId, "opencode_go");
-assert.equal(disabledHighest.value, "40%");
+assert.equal(disabledHighest.value, "60% left");
 
 const pinnedProvider = context.selectProvider({
-    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 90 } } }, stale: false },
     opencode_go: {
         type: "quota-based",
         windows: { rolling: { usagePercent: 40, status: "ok" } },
         stale: false,
     },
 }, {
-    enabledProviders: { antigravity: true, opencode_go: true },
+    enabledProviders: { chatgpt: true, opencode_go: true },
     compactProvider: "opencode_go",
 });
 assert.equal(pinnedProvider.providerId, "opencode_go");
-assert.equal(pinnedProvider.value, "40%");
+assert.equal(pinnedProvider.value, "60% left");
 
 const disabledPinFallsBack = context.selectProvider({
-    antigravity: { type: "quota-based", usagePercentage: 90, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 90 } } }, stale: false },
     chatgpt: {
         type: "quota-based",
         limits: { codex: { primary: { usagePercent: 65 } } },
         stale: false,
     },
 }, {
-    enabledProviders: { antigravity: false, chatgpt: true },
-    compactProvider: "antigravity",
+    enabledProviders: { chatgpt: false, chatgpt: true },
+    compactProvider: "chatgpt",
 });
 assert.equal(disabledPinFallsBack.providerId, "chatgpt");
-assert.equal(disabledPinFallsBack.value, "65%");
+assert.equal(disabledPinFallsBack.value, "35% left");
 
 const unavailablePinFallsBack = context.selectProvider({
-    antigravity: { type: "quota-based", usagePercentage: 55, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 55 } } }, stale: false },
 }, {
-    enabledProviders: { antigravity: true, opencode_go: true },
+    enabledProviders: { chatgpt: true, opencode_go: true },
     compactProvider: "opencode_go",
 });
-assert.equal(unavailablePinFallsBack.providerId, "antigravity");
+assert.equal(unavailablePinFallsBack.providerId, "chatgpt");
 
 const allDisabled = context.selectProvider({
-    antigravity: { type: "quota-based", usagePercentage: 55, stale: false },
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 55 } } }, stale: false },
 }, {
-    enabledProviders: { antigravity: false },
+    enabledProviders: { chatgpt: false },
     compactProvider: "highest",
 });
 assert.equal(allDisabled.providerId, "");
+
+const fractionalUsage = context.selectProvider({
+    chatgpt: { type: "quota-based", limits: { codex: { primary: { usagePercent: 46.7 } } }, stale: false },
+}, {
+    enabledProviders: { chatgpt: true },
+    compactProvider: "chatgpt",
+});
+assert.equal(fractionalUsage.value, "53.3% left");

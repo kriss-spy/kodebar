@@ -18,3 +18,7 @@ assert.equal(context.state(100, false), "critical");
 assert.equal(context.state(95, true), "stale");
 assert.equal(context.state(null, false), "unknown");
 assert.equal(context.state(Number.NaN, false), "unknown");
+assert.equal(context.remaining(46.7), 53.3);
+assert.equal(context.remaining(25.1), 74.9);
+assert.equal(context.percentage(53.3), "53.3");
+assert.equal(context.percentage(54), "54");

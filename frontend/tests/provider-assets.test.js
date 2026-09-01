@@ -10,7 +10,7 @@ const context = { qsTr: value => value };
 vm.createContext(context);
 vm.runInContext(source, context, { filename: helperPath });
 
-for (const providerId of ["antigravity", "opencode_go", "opencode_zen", "chatgpt"]) {
+for (const providerId of ["opencode_go", "opencode_zen", "chatgpt"]) {
     const assetPath = path.resolve(path.dirname(helperPath), context.iconSource(providerId));
     const svg = fs.readFileSync(assetPath, "utf8");
     assert.match(svg, /^<svg /);

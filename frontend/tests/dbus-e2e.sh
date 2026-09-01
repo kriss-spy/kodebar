@@ -11,9 +11,15 @@ fi
 test_root="$(mktemp -d /tmp/kodebar-dbus-e2e.XXXXXX)"
 trap 'rm -rf -- "$test_root"' EXIT
 
+qml_testrunner=/usr/lib/qt6/bin/qmltestrunner
+if [[ ! -x "$qml_testrunner" ]]; then
+    echo "kodebar: warning: qmltestrunner not found — skipping D-Bus e2e test" >&2
+    exit 0
+fi
+
 env QT_QPA_PLATFORM=offscreen \
     XDG_CACHE_HOME="$test_root/cache" \
-    /usr/lib/qt6/bin/qmltestrunner \
+    "$qml_testrunner" \
     -input "$repository_root/frontend/tests/qml/tst_snapshotsignale2e.qml" &
 runner_pid=$!
 

@@ -13,19 +13,29 @@ for test_file in frontend/tests/*.test.js; do
     node "$test_file"
 done
 
-for qml_test in \
-    frontend/tests/qml/tst_providericon.qml \
-    frontend/tests/qml/tst_snapshotreader.qml \
-    frontend/tests/qml/tst_snapshotsignalwatcher.qml; do
-    env QT_QPA_PLATFORM=offscreen \
-        /usr/lib/qt6/bin/qmltestrunner -input "$qml_test"
-done
+qml_testrunner=/usr/lib/qt6/bin/qmltestrunner
+if [[ -x "$qml_testrunner" ]]; then
+    for qml_test in \
+        frontend/tests/qml/tst_providericon.qml \
+        frontend/tests/qml/tst_snapshotreader.qml \
+        frontend/tests/qml/tst_snapshotsignalwatcher.qml; do
+        env QT_QPA_PLATFORM=offscreen \
+            "$qml_testrunner" -input "$qml_test"
+    done
+else
+    echo "kodebar: warning: qmltestrunner not found — skipping QML unit tests" >&2
+fi
 
-for qml_file in \
-    frontend/package/contents/ui/*.qml \
-    frontend/package/contents/config/*.qml; do
-    /usr/lib/qt6/bin/qmllint "$qml_file"
-done
+qml_lint=/usr/lib/qt6/bin/qmllint
+if [[ -x "$qml_lint" ]]; then
+    for qml_file in \
+        frontend/package/contents/ui/*.qml \
+        frontend/package/contents/config/*.qml; do
+        "$qml_lint" "$qml_file"
+    done
+else
+    echo "kodebar: warning: qmllint not found — skipping QML lint" >&2
+fi
 
 jq empty frontend/package/metadata.json
 xmllint --noout \

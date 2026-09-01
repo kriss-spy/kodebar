@@ -4,6 +4,11 @@ function isPercentage(value) {
     return typeof value === "number" && isFinite(value) && value >= 0 && value <= 100;
 }
 
+function remainingText(usage) {
+    const remaining = Math.round((100 - usage) * 10) / 10;
+    return (Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(1)) + "% left";
+}
+
 function quotaUsage(provider) {
     if (!provider || provider.type !== "quota-based") {
         return null;
@@ -56,7 +61,7 @@ function selectProvider(snapshot, options) {
         if (usage !== null && (!selected || usage > selected.usage)) {
             selected = {
                 providerId: providerId,
-                value: Math.round(usage) + "%",
+                value: remainingText(usage),
                 usage: usage,
                 stale: provider.stale === true,
             };
@@ -64,7 +69,7 @@ function selectProvider(snapshot, options) {
         if (providerId === compactProvider && usage !== null) {
             pinned = {
                 providerId: providerId,
-                value: Math.round(usage) + "%",
+                value: remainingText(usage),
                 usage: usage,
                 stale: provider.stale === true,
             };

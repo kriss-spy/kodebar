@@ -1,10 +1,9 @@
 .pragma library
 
 const PROVIDERS = [
-    { id: "antigravity", title: qsTr("Antigravity"), compactTitle: qsTr("Antigravity"), icon: "../images/provider-antigravity.svg", setup: qsTr("Sign in with Gemini CLI or Antigravity") },
-    { id: "opencode_go", title: qsTr("OpenCode Go"), compactTitle: qsTr("Go"), icon: "../images/provider-opencode-go.svg", setup: qsTr("Run kodebar login opencode") },
+    { id: "opencode_go", title: qsTr("OpenCode Go"), compactTitle: qsTr("Go"), icon: "../images/provider-opencode-go.svg", setup: qsTr("Connect your OpenCode account to see Go plan limits") },
     { id: "opencode_zen", title: qsTr("OpenCode Zen"), compactTitle: qsTr("Zen"), icon: "../images/provider-opencode.svg", setup: qsTr("Configure optional OpenCode Zen credentials") },
-    { id: "chatgpt", title: qsTr("ChatGPT"), compactTitle: qsTr("ChatGPT"), icon: "../images/provider-chatgpt.svg", setup: qsTr("Sign in with ChatGPT in Codex") },
+    { id: "chatgpt", title: qsTr("ChatGPT"), compactTitle: qsTr("ChatGPT"), icon: "../images/provider-chatgpt.svg", setup: qsTr("Connect your ChatGPT account to see Codex plan limits") },
 ];
 
 function providerDefinition(providerId) {
@@ -58,35 +57,17 @@ function ageText(timestamp, nowMs) {
     return qsTr("%1d ago").replace("%1", Math.floor(elapsedSec / 86400));
 }
 
-function antigravityRows(provider, nowMs) {
-    const rows = [];
-    const accounts = Array.isArray(provider.accounts) ? provider.accounts : [];
-    accounts.forEach(function(account) {
-        const breakdown = account && account.modelBreakdown;
-        if (!breakdown || typeof breakdown !== "object")
-            return;
-        Object.keys(breakdown).sort().forEach(function(modelId) {
-            const quota = breakdown[modelId] || {};
-            const remaining = Number(quota.remainingPercentage);
-            rows.push({
-                label: modelId,
-                usagePercent: isFinite(remaining) ? Math.max(0, Math.min(100, 100 - remaining)) : 0,
-                resetText: countdown(quota.resetTime, nowMs),
-                statusText: "",
-            });
-        });
-    });
-    return rows;
-}
-
 function goRows(provider, nowMs) {
     const windows = provider.windows || {};
     return [
         { key: "rolling", label: qsTr("Rolling 5 hours") },
         { key: "weekly", label: qsTr("Weekly") },
         { key: "monthly", label: qsTr("Monthly") },
-    ].map(function(definition) {
-        const window = windows[definition.key] || {};
+    ].filter(function(definition) {
+        const window = windows[definition.key];
+        return window && typeof window.usagePercent === "number" && isFinite(window.usagePercent);
+    }).map(function(definition) {
+        const window = windows[definition.key];
         return {
             label: definition.label,
             usagePercent: Number(window.usagePercent) || 0,
@@ -94,6 +75,19 @@ function goRows(provider, nowMs) {
             statusText: window.status === "rate-limited" ? qsTr("Rate limited") : "",
         };
     });
+}
+
+function quotaWindowLabel(window, fallback) {
+    const duration = Number(window && window.windowDurationSec);
+    if (!isFinite(duration) || duration <= 0)
+        return fallback;
+    if (duration <= 86400)
+        return qsTr("Session");
+    if (duration <= 8 * 86400)
+        return qsTr("Weekly");
+    if (duration <= 32 * 86400)
+        return qsTr("Monthly");
+    return fallback;
 }
 
 function planName(planType) {
@@ -106,6 +100,22 @@ function planName(planType) {
     case "enterprise": return qsTr("Enterprise plan");
     default: return qsTr("Subscription plan");
     }
+}
+
+function isAuthenticationError(error) {
+    const message = String(error || "").toLowerCase();
+    return message.includes("auth")
+        || message.includes("login")
+        || message.includes("credential")
+        || message.includes("token")
+        || message.includes("401")
+        || message.includes("403");
+}
+
+function errorText(error) {
+    return isAuthenticationError(error)
+        ? qsTr("Sign-in expired. Reconnect to resume updates.")
+        : String(error || "");
 }
 
 function chatGptRows(provider, nowMs) {
@@ -124,10 +134,13 @@ function chatGptRows(provider, nowMs) {
             { key: "secondary", label: qsTr("Secondary") },
         ].forEach(function(definition) {
             const window = limit[definition.key];
-            if (!window)
+            if (!window || typeof window.usagePercent !== "number" || !isFinite(window.usagePercent))
                 return;
+            const windowLabel = quotaWindowLabel(window, definition.label);
             rows.push({
-                label: qsTr("%1 · %2").replace("%1", limitLabel).replace("%2", definition.label),
+                label: key === "codex"
+                    ? windowLabel
+                    : qsTr("%1 · %2").replace("%1", limitLabel).replace("%2", windowLabel),
                 usagePercent: Number(window.usagePercent) || 0,
                 resetText: countdown(window.resetAt, nowMs),
                 statusText: "",
@@ -139,18 +152,6 @@ function chatGptRows(provider, nowMs) {
 
 function card(providerId, provider, nowMs) {
     const definition = providerDefinition(providerId);
-    if (providerId === "antigravity") {
-        return {
-            providerId: providerId,
-            title: definition.title,
-            rows: antigravityRows(provider, nowMs),
-            stale: provider.stale === true,
-            lastUpdated: provider.lastUpdated || "",
-            error: provider.error || "",
-            detailText: "",
-            secondaryText: "",
-        };
-    }
     if (providerId === "opencode_go") {
         return {
             providerId: providerId,
@@ -158,9 +159,11 @@ function card(providerId, provider, nowMs) {
             rows: goRows(provider, nowMs),
             stale: provider.stale === true,
             lastUpdated: provider.lastUpdated || "",
-            error: provider.error || "",
+            error: errorText(provider.error),
             detailText: "",
             secondaryText: "",
+            connected: !isAuthenticationError(provider.error),
+            actionLabel: isAuthenticationError(provider.error) ? qsTr("Reconnect OpenCode") : "",
         };
     }
     if (providerId === "opencode_zen") {
@@ -170,11 +173,13 @@ function card(providerId, provider, nowMs) {
             rows: [],
             stale: provider.stale === true,
             lastUpdated: provider.lastUpdated || "",
-            error: provider.error || "",
+            error: errorText(provider.error),
             detailText: qsTr("Balance %1").replace("%1", provider.balanceFormatted || qsTr("Unavailable")),
             secondaryText: provider.useBalance
                 ? qsTr("Auto-reload $%1 at $%2").replace("%1", provider.reloadAmount).replace("%2", provider.reloadTrigger)
                 : qsTr("Auto-reload off"),
+            connected: !isAuthenticationError(provider.error),
+            actionLabel: "",
         };
     }
     if (providerId === "chatgpt") {
@@ -184,9 +189,11 @@ function card(providerId, provider, nowMs) {
             rows: chatGptRows(provider, nowMs),
             stale: provider.stale === true,
             lastUpdated: provider.lastUpdated || "",
-            error: provider.error || "",
+            error: errorText(provider.error),
             detailText: planName(provider.planType),
             secondaryText: "",
+            connected: !isAuthenticationError(provider.error),
+            actionLabel: isAuthenticationError(provider.error) ? qsTr("Reconnect ChatGPT") : "",
         };
     }
     return null;
@@ -203,6 +210,10 @@ function setupCard(providerId) {
         error: "",
         detailText: definition.setup,
         secondaryText: qsTr("No Snapshot data yet"),
+        connected: false,
+        actionLabel: providerId === "chatgpt" ? qsTr("Sign in with ChatGPT")
+            : providerId === "opencode_go" ? qsTr("Start guided login")
+            : "",
     };
 }
 

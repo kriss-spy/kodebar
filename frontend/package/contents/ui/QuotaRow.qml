@@ -9,6 +9,8 @@ ColumnLayout {
 
     required property var quota
     readonly property string usageState: UsagePresentation.state(Number(root.quota.usagePercent), false)
+    readonly property real remaining: UsagePresentation.remaining(root.quota.usagePercent)
+    readonly property string remainingText: UsagePresentation.percentage(root.remaining)
 
     spacing: 3
 
@@ -22,7 +24,7 @@ ColumnLayout {
         }
 
         PlasmaComponents.Label {
-            text: qsTr("%1%").arg(Math.round(root.quota.usagePercent))
+            text: qsTr("%1% left").arg(root.remainingText)
             color: root.usageState === "critical" ? Kirigami.Theme.negativeTextColor
                 : root.usageState === "warning" ? Kirigami.Theme.neutralTextColor
                 : Kirigami.Theme.positiveTextColor
@@ -33,9 +35,9 @@ ColumnLayout {
         Layout.fillWidth: true
         from: 0
         to: 100
-        value: Math.max(0, Math.min(100, root.quota.usagePercent))
-        Accessible.name: qsTr("%1 usage").arg(root.quota.label)
-        Accessible.description: qsTr("%1 percent used").arg(Math.round(root.quota.usagePercent))
+        value: root.remaining
+        Accessible.name: qsTr("%1 remaining").arg(root.quota.label)
+        Accessible.description: qsTr("%1 percent remaining").arg(root.remainingText)
     }
 
     RowLayout {

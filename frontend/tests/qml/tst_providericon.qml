@@ -15,15 +15,15 @@ TestCase {
 
         width: 64
         height: 64
-        providerId: "antigravity"
+        providerId: "opencode_zen"
     }
 
     function init() {
-        providerIcon.providerId = "antigravity";
+        providerIcon.providerId = "opencode_zen";
     }
 
     function test_knownProviderUsesPackagedIdentity() {
-        compare(providerIcon.iconSource, "../images/provider-antigravity.svg");
+        compare(providerIcon.iconSource, "../images/provider-opencode.svg");
     }
 
     function test_unknownProviderUsesGenericIdentity() {

@@ -18,34 +18,34 @@ See [`PRD.md`](./PRD.md) for the full design rationale, architecture, and milest
 
 ```
 Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
-  reads ~/.gemini/oauth_creds.json                  reads ~/.cache/kodebar/last.json
-  reads ~/.local/share/opencode/auth.json           on a Timer (or D-Bus signal)
+  reads ~/.local/share/opencode/auth.json           reads ~/.cache/kodebar/last.json
+  reads ~/.codex/auth.json (read-only)              on a Timer (or D-Bus signal)
   probes provider quota/cost APIs directly
   writes ~/.cache/kodebar/last.json
   exposes `kodebar status --json`
 ```
 
 - The backend discovers providers, refreshes OAuth tokens, probes each provider's quota/cost API in parallel, merges results into a cached JSON snapshot, and marks providers `stale` on failure instead of dropping them.
-- The Plasmoid renders compact panel text (`Gemini 42% · Zen $12`) and a per-provider popup with usage bars, reset countdowns, and last-updated timestamps.
+- The Plasmoid renders compact panel text (`ChatGPT 24% left · 42m`) and a per-provider popup with usage bars and reset countdowns.
 - Why a separate backend? Token refresh, retries, parallel probing, and disk caching is far easier to get right in a backend service than in QML — and the cache + CLI are reusable by other UI surfaces (waybar, AGS, scripts).
 
 ## Provider scope
 
 | Provider | Auth source | Probe method | Verified |
 |---|---|---|---|
-| Antigravity (Gemini) | `~/.gemini/oauth_creds.json` | Google Code Assist API (`retrieveUserQuota`) | Path confirmed by prior art |
 | OpenCode Go | API key in OpenCode `auth.json` | Official `GET /zen/go/v1/usage` API | ✅ Live-tested |
 | OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
 | ChatGPT subscription plans | Read-only `~/.codex/auth.json` session | Native ChatGPT quota Probe | ✅ Live source validated; internal endpoint |
 
-Antigravity (replacing Gemini CLI), OpenCode Go, and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
+OpenCode Go and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
+
+Antigravity was removed in 0.2.0: Google stopped serving Code Assist quota for individual accounts (2026-06-18), so the probe permanently returned a license 403.
 
 ## Prerequisites
 
 Before the backend can probe anything, you must already have authenticated locally:
 
 ```bash
-gemini login      # or agy login — both write ~/.gemini/oauth_creds.json
 kodebar login opencode  # opens the browser, validates the key, writes OpenCode auth.json
 
 # ChatGPT: sign in with ChatGPT in Codex once. Kodebar reads the current
@@ -109,12 +109,12 @@ The Plasmoid requires the native backend and reads its
 
 ## Milestones
 
-- **M1** — Backend: Antigravity + OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
+- **M1** — Backend: OpenCode Go + Zen probes, CLI output, file cache (testable from terminal)
 - **M1.1** — ChatGPT plans: native read-only session Probe with plan quota windows
 - **M2** — Minimal Plasmoid: compact panel text reading the Snapshot (implemented)
 - **M3** — Full Representation, Provider settings, and D-Bus instant refresh (implemented)
 - **M4** — Provider identity, KDE Store packaging, and release polish (implemented)
-- **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet, `state.vscdb` Antigravity fallback)
+- **M5** — Provider expansion (API-key providers, browser-cookie providers via libsecret/kwallet)
 
 See [`Milestones.md`](./Milestones.md) for details.
 

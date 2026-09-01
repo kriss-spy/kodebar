@@ -14,7 +14,7 @@
         "Id": "io.github.kriss_spy.kodebar",
         "License": "MIT",
         "Name": "Kodebar",
-        "Version": "0.1.0",
+        "Version": "0.2.0",
         "Website": "https://github.com/kriss-spy/kodebar"
     },
     "X-Plasma-API-Minimum-Version": "6.0"

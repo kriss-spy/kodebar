@@ -8,10 +8,8 @@ import org.kde.kirigami as Kirigami
 KCM.SimpleKCM {
     id: root
 
-    property alias cfg_enabledAntigravity: antigravity.checked
     property alias cfg_enabledChatGPT: chatGpt.checked
     property alias cfg_enabledOpenCodeGo: openCodeGo.checked
-    property alias cfg_enabledOpenCodeZen: openCodeZen.checked
     property alias cfg_refreshIntervalSeconds: refreshInterval.value
     property string cfg_compactProvider
 
@@ -25,9 +23,10 @@ KCM.SimpleKCM {
     Component.onCompleted: root.syncCompactProvider()
 
     Kirigami.FormLayout {
-        CheckBox {
-            id: antigravity
-            text: qsTr("Antigravity")
+        Kirigami.Heading {
+            Kirigami.FormData.isSection: true
+            text: qsTr("Subscription plans")
+            level: 3
         }
 
         CheckBox {
@@ -38,11 +37,6 @@ KCM.SimpleKCM {
         CheckBox {
             id: openCodeGo
             text: qsTr("OpenCode Go")
-        }
-
-        CheckBox {
-            id: openCodeZen
-            text: qsTr("OpenCode Zen")
         }
 
         SpinBox {
@@ -69,12 +63,11 @@ KCM.SimpleKCM {
             valueRole: "value"
             model: [
                 { text: qsTr("Highest usage"), value: "highest" },
-                { text: qsTr("Antigravity"), value: "antigravity" },
                 { text: qsTr("ChatGPT"), value: "chatgpt" },
                 { text: qsTr("OpenCode Go"), value: "opencode_go" },
-                { text: qsTr("OpenCode Zen"), value: "opencode_zen" },
             ]
             onActivated: root.cfg_compactProvider = currentValue
         }
+
     }
 }

@@ -25,9 +25,11 @@ TestCase {
             "_meta": {
                 "version": 1
             },
-            "antigravity": {
+            "chatgpt": {
                 "type": "quota-based",
-                "usagePercentage": 42,
+                "limits": {
+                    "codex": { "primary": { "usagePercent": 42 } }
+                },
                 "stale": false
             },
             "opencode_go": {
@@ -42,7 +44,7 @@ TestCase {
             }
         }));
         compare(reader.selection.providerId, "opencode_go");
-        compare(reader.selection.value, "71%");
+        compare(reader.selection.value, "29% left");
         compare(reader.snapshot.opencode_go.windows.rolling.usagePercent, 71);
         verify(reader.hasSnapshot);
     }
@@ -55,7 +57,7 @@ TestCase {
     function test_settingsFilterAndPinCompactProvider() {
         reader.selectionOptions = ({
             "enabledProviders": {
-                "antigravity": false,
+                "chatgpt": false,
                 "opencode_go": true
             },
             "compactProvider": "opencode_go"
@@ -63,7 +65,7 @@ TestCase {
 
         reader.readSnapshot(JSON.stringify({
             "_meta": { "version": 1 },
-            "antigravity": {
+            "chatgpt": {
                 "type": "quota-based",
                 "usagePercentage": 95,
                 "stale": false
@@ -78,13 +80,13 @@ TestCase {
         }));
 
         compare(reader.selection.providerId, "opencode_go");
-        compare(reader.selection.value, "35%");
+        compare(reader.selection.value, "65% left");
     }
 
     function test_settingsChangesReselectLastValidSnapshotImmediately() {
         reader.readSnapshot(JSON.stringify({
             "_meta": { "version": 1 },
-            "antigravity": {
+            "chatgpt": {
                 "type": "quota-based",
                 "usagePercentage": 95,
                 "stale": false
@@ -97,7 +99,7 @@ TestCase {
                 "stale": false
             }
         }));
-        compare(reader.selection.providerId, "antigravity");
+        compare(reader.selection.providerId, "chatgpt");
 
         reader.selectionOptions = ({ "compactProvider": "opencode_go" });
 
@@ -109,7 +111,7 @@ TestCase {
             "_meta": {
                 "version": 1
             },
-            "antigravity": {
+            "chatgpt": {
                 "type": "quota-based",
                 "usagePercentage": 42,
                 "stale": false
@@ -117,7 +119,7 @@ TestCase {
         }));
         const lastValidSnapshot = reader.snapshot;
         reader.readSnapshot("not JSON");
-        compare(reader.selection.providerId, "antigravity");
+        compare(reader.selection.providerId, "chatgpt");
         compare(reader.snapshot, lastValidSnapshot);
         verify(reader.errorMessage.length > 0);
     }
@@ -135,7 +137,7 @@ TestCase {
 
         tryCompare(reader, "hasSnapshot", true, 2000);
         compare(reader.selection.providerId, "chatgpt");
-        compare(reader.selection.value, "67%");
+        compare(reader.selection.value, "33% left");
     }
 
     name: "SnapshotReader"

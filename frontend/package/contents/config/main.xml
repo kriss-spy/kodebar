@@ -5,20 +5,12 @@
     <kcfgfile name=""/>
 
     <group name="General">
-        <entry name="enabledAntigravity" type="Bool">
-            <label>Whether Antigravity is included in Kodebar displays.</label>
-            <default>true</default>
-        </entry>
         <entry name="enabledChatGPT" type="Bool">
             <label>Whether ChatGPT is included in Kodebar displays.</label>
             <default>true</default>
         </entry>
         <entry name="enabledOpenCodeGo" type="Bool">
             <label>Whether OpenCode Go is included in Kodebar displays.</label>
-            <default>true</default>
-        </entry>
-        <entry name="enabledOpenCodeZen" type="Bool">
-            <label>Whether OpenCode Zen is included in Kodebar displays.</label>
             <default>true</default>
         </entry>
         <entry name="refreshIntervalSeconds" type="Int">
