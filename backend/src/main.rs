@@ -4,12 +4,11 @@ mod snapshot_signal;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use login::{LoginOutcome, SystemBrowser, TerminalSecretReader};
-use probe::antigravity::{self, AntigravityPayload};
+use probe::ProbeError;
 use probe::chatgpt::{self, ChatGptClient, ChatGptPayload};
 use probe::opencode_dashboard::DashboardClient;
 use probe::opencode_go::{self, OpenCodeGoClient, OpenCodeGoPayload};
 use probe::opencode_zen::{self, OpenCodeZenPayload};
-use probe::{CodeAssistClient, ProbeError};
 use serde::{Deserialize, Serialize};
 use snapshot_signal::{SessionBusSnapshotNotifier, SnapshotNotifier};
 use std::collections::BTreeMap;
@@ -69,7 +68,6 @@ struct SnapshotMeta {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 enum ProviderPayload {
-    Antigravity(AntigravityPayload),
     ChatGpt(ChatGptPayload),
     OpenCodeGo(OpenCodeGoPayload),
     OpenCodeZen(OpenCodeZenPayload),
@@ -120,8 +118,7 @@ impl ProviderEntry {
 
     /// Build a stale entry, preserving the prior entry's payload and
     /// `last_updated` (last-known-good). For the no-prior-data case pass an
-    /// [`ProviderPayload::Antigravity`] built from
-    /// [`AntigravityPayload::empty`].
+    /// empty provider payload.
     fn stale_from_prior(prior: ProviderEntry) -> Self {
         Self {
             payload: prior.payload,
@@ -439,8 +436,7 @@ fn run_probe_tasks_at(
 /// are independent and isolated — one failing must not block others (PRD
 /// §7.3). The prior Snapshot (read from the cache file) supplies
 /// last-known-good data for the Stale path.
-fn build_snapshot<C, D, G, H>(
-    code_assist_client: Arc<C>,
+fn build_snapshot<D, G, H>(
     dashboard_client: Arc<D>,
     go_client: Arc<G>,
     chatgpt_client: Arc<H>,
@@ -449,28 +445,13 @@ fn build_snapshot<C, D, G, H>(
     chatgpt_auth_path: Result<PathBuf, ProbeError>,
 ) -> Snapshot
 where
-    C: CodeAssistClient + Send + Sync + 'static,
     D: DashboardClient + Send + Sync + 'static,
     G: OpenCodeGoClient + Send + Sync + 'static,
     H: ChatGptClient + Send + Sync + 'static,
 {
     let mut prior = load_prior_snapshot().providers;
-    let antigravity_client = Arc::clone(&code_assist_client);
     let zen_credentials_path = dashboard_credentials_path.to_owned();
     let tasks = vec![
-        ProbeTask::new(
-            "antigravity",
-            prior.remove("antigravity"),
-            ProviderPayload::Antigravity(AntigravityPayload::empty()),
-            move || {
-                antigravity::run(
-                    antigravity_client.as_ref(),
-                    &antigravity::gemini_dir(),
-                    true,
-                )
-                .map(ProviderPayload::Antigravity)
-            },
-        ),
         ProbeTask::new(
             "chatgpt",
             prior.remove("chatgpt"),
@@ -561,8 +542,6 @@ fn run(cli: Cli) -> Result<(), String> {
         return Ok(());
     }
 
-    let code_assist_client = antigravity::ReqwestClient::new()
-        .map_err(|e| format!("failed to init Code Assist HTTP client: {e:?}"))?;
     let dashboard_client = probe::opencode_dashboard::ReqwestDashboardClient::new()
         .map_err(|e| format!("failed to init OpenCode dashboard HTTP client: {e:?}"))?;
     let go_client = probe::opencode_go::ReqwestOpenCodeGoClient::new()
@@ -570,7 +549,6 @@ fn run(cli: Cli) -> Result<(), String> {
     let chatgpt_client = probe::chatgpt::ReqwestChatGptClient::new()
         .map_err(|e| format!("failed to init ChatGPT HTTP client: {e:?}"))?;
     let snapshot = build_snapshot(
-        Arc::new(code_assist_client),
         Arc::new(dashboard_client),
         Arc::new(go_client),
         Arc::new(chatgpt_client),
@@ -692,7 +670,7 @@ mod tests {
     #[test]
     fn provider_entry_has_stale_and_last_updated_fields() {
         let entry = ProviderEntry {
-            payload: ProviderPayload::Antigravity(AntigravityPayload::empty()),
+            payload: ProviderPayload::ChatGpt(ChatGptPayload::empty()),
             stale: true,
             last_updated: Some("2026-07-02T11:17:00Z".to_string()),
             error: None,
@@ -706,7 +684,7 @@ mod tests {
         assert_eq!(v["lastUpdated"], "2026-07-02T11:17:00Z");
         // The provider payload is flattened in, not nested.
         assert_eq!(v["type"], "quota-based");
-        assert_eq!(v["usagePercentage"], 0);
+        assert_eq!(v["planType"], "unknown");
     }
 
     #[test]

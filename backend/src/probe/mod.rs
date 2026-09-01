@@ -4,16 +4,11 @@
 //! See `backend/CONTEXT.md` for the ubiquitous language (Probe, Provider,
 //! Snapshot, Stale, Quota Window, Credential File, Token Refresh).
 
-pub mod antigravity;
 pub mod chatgpt;
 pub mod opencode_auth;
 pub mod opencode_dashboard;
 pub mod opencode_go;
 pub mod opencode_zen;
-
-pub use antigravity::CodeAssistClient;
-
-use serde_json::Value;
 
 /// The common error type for all probes.
 ///
@@ -42,6 +37,10 @@ pub enum ProbeError {
     Parse(String),
     /// A browser-backed dashboard rejected or redirected the saved session.
     SessionExpired(String),
+    /// The provider API rejected the account even though authentication
+    /// succeeded — e.g. Google ended the free Code Assist tier. Distinct from
+    /// auth failures so the UI does not offer a reconnect action.
+    Unsupported(String),
     /// A local I/O failure (reading the Credential File, writing back a
     /// refreshed token, …).
     Io(String),
@@ -56,23 +55,10 @@ impl ProbeError {
             | Self::InvalidCredentials(message)
             | Self::Parse(message)
             | Self::SessionExpired(message)
+            | Self::Unsupported(message)
             | Self::Io(message) => message.clone(),
             Self::RateLimited => "provider rate limited the Probe".into(),
             Self::Http { status, .. } => format!("provider returned HTTP {status}"),
         }
-    }
-}
-
-/// An HTTP-level response captured for the probe logic to inspect (notably
-/// the status code, for 429 detection).
-#[derive(Debug, Clone)]
-pub struct HttpResponse {
-    pub status: u16,
-    pub body: Value,
-}
-
-impl HttpResponse {
-    pub fn is_rate_limited(&self) -> bool {
-        self.status == 429
     }
 }
