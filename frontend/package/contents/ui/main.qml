@@ -44,6 +44,11 @@ PlasmoidItem {
         loginRunner.connectSource(command)
     }
 
+    function refreshUsage() {
+        refreshRunner.disconnectSource(root.pollCommand)
+        refreshRunner.connectSource(root.pollCommand)
+    }
+
     toolTipMainText: qsTr("Kodebar")
     toolTipSubText: root.compactText
     preferredRepresentation: compactRepresentation
@@ -66,11 +71,18 @@ PlasmoidItem {
         onNewData: function(sourceName) {
             loginRunner.disconnectSource(sourceName)
             if (sourceName.startsWith("konsole -e ")) {
-                loginRunner.disconnectSource(root.pollCommand)
-                loginRunner.connectSource(root.pollCommand)
-            } else if (sourceName === root.pollCommand) {
-                snapshotReader.refresh()
+                root.refreshUsage()
             }
+        }
+    }
+
+    Plasma5Support.DataSource {
+        id: refreshRunner
+
+        engine: "executable"
+        onNewData: function(sourceName) {
+            refreshRunner.disconnectSource(sourceName)
+            snapshotReader.refresh()
         }
     }
 
@@ -168,7 +180,7 @@ PlasmoidItem {
         snapshot: snapshotReader.snapshot
         readerError: snapshotReader.errorMessage
         enabledProviders: root.enabledProviders
-        onRefreshRequested: snapshotReader.refresh()
+        onRefreshRequested: root.refreshUsage()
         onConfigureRequested: Plasmoid.internalAction("configure").trigger()
         onLoginRequested: providerId => root.startGuidedLogin(providerId)
     }

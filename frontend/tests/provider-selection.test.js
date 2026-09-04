@@ -156,3 +156,27 @@ const fractionalUsage = context.selectProvider({
     compactProvider: "chatgpt",
 });
 assert.equal(fractionalUsage.value, "53.3% left");
+
+// Regression: compact selection must use the worst window, matching the
+// card header (mostUsed). A healthy rolling window must not mask a
+// depleted weekly window, and a healthy primary must not mask secondary.
+const worstWindowWins = context.selectProvider({
+    _meta: { version: 1 },
+    opencode_go: {
+        type: "quota-based",
+        windows: {
+            rolling: { usagePercent: 4, status: "ok" },
+            weekly: { usagePercent: 100, status: "rate-limited" },
+            monthly: { usagePercent: 51, status: "ok" },
+        },
+        stale: false,
+    },
+    chatgpt: {
+        type: "quota-based",
+        limits: { codex: { primary: { usagePercent: 0 }, secondary: { usagePercent: 57 } } },
+        stale: false,
+    },
+});
+assert.equal(worstWindowWins.providerId, "opencode_go");
+assert.equal(worstWindowWins.value, "0% left");
+assert.equal(worstWindowWins.usage, 100);

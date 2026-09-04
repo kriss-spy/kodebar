@@ -16,20 +16,33 @@ function quotaUsage(provider) {
     if (provider.stale === true && !provider.lastUpdated) {
         return null;
     }
-    if (isPercentage(provider.usagePercentage)) {
-        return provider.usagePercentage;
+    let worst = null;
+    function consider(value) {
+        if (isPercentage(value) && (worst === null || value > worst)) {
+            worst = value;
+        }
     }
-    const codex = provider.limits && provider.limits.codex;
-    const chatGptWindow = codex && (codex.primary || codex.secondary);
-    if (chatGptWindow && isPercentage(chatGptWindow.usagePercent)) {
-        return chatGptWindow.usagePercent;
+    consider(provider.usagePercentage);
+    const limits = provider.limits;
+    if (limits && typeof limits === "object") {
+        Object.keys(limits).forEach(function(key) {
+            const limit = limits[key] || {};
+            ["primary", "secondary"].forEach(function(slot) {
+                const window = limit[slot];
+                if (window)
+                    consider(window.usagePercent);
+            });
+        });
     }
-    const rolling = provider.windows && provider.windows.rolling;
-    if (rolling && (rolling.status === undefined || rolling.status === "ok" || rolling.status === "rate-limited")
-            && isPercentage(rolling.usagePercent)) {
-        return rolling.usagePercent;
+    const windows = provider.windows;
+    if (windows && typeof windows === "object") {
+        Object.keys(windows).forEach(function(key) {
+            const window = windows[key] || {};
+            if (window.status === undefined || window.status === "ok" || window.status === "rate-limited")
+                consider(window.usagePercent);
+        });
     }
-    return null;
+    return worst;
 }
 
 function providerMap(snapshot) {
