@@ -56,7 +56,39 @@ function providerMap(snapshot) {
     return snapshot;
 }
 
-function selectProvider(snapshot, options) {
+function providerSelection(providerId, provider, usage) {
+    return {
+        providerId: providerId,
+        value: remainingText(usage),
+        usage: usage,
+        stale: provider.stale === true,
+    };
+}
+
+function eligibleProviderIds(snapshot, options) {
+    const providers = providerMap(snapshot);
+    const enabledProviders = options && options.enabledProviders;
+    return Object.keys(providers).filter(function(providerId) {
+        return providerId !== "_meta"
+            && (!enabledProviders || enabledProviders[providerId] !== false)
+            && quotaUsage(providers[providerId]) !== null;
+    }).sort();
+}
+
+function cycleProviderId(snapshot, options, currentProviderId, direction) {
+    const providerIds = eligibleProviderIds(snapshot, options);
+    if (providerIds.length <= 1)
+        return "";
+
+    const currentIndex = providerIds.indexOf(currentProviderId);
+    const step = direction < 0 ? -1 : 1;
+    const index = currentIndex === -1
+        ? (step < 0 ? providerIds.length - 1 : 0)
+        : (currentIndex + step + providerIds.length) % providerIds.length;
+    return providerIds[index];
+}
+
+function selectProvider(snapshot, options, compactProviderOverride) {
     const providers = providerMap(snapshot);
     const enabledProviders = options && options.enabledProviders;
     const compactProvider = options && options.compactProvider;
@@ -64,6 +96,7 @@ function selectProvider(snapshot, options) {
         return providerId !== "_meta"
             && (!enabledProviders || enabledProviders[providerId] !== false);
     }).sort();
+    const eligibleIds = eligibleProviderIds(snapshot, options);
     let selected = null;
     let zenFallback = null;
     let pinned = null;
@@ -72,20 +105,10 @@ function selectProvider(snapshot, options) {
         const provider = providers[providerId];
         const usage = quotaUsage(provider);
         if (usage !== null && (!selected || usage > selected.usage)) {
-            selected = {
-                providerId: providerId,
-                value: remainingText(usage),
-                usage: usage,
-                stale: provider.stale === true,
-            };
+            selected = providerSelection(providerId, provider, usage);
         }
         if (providerId === compactProvider && usage !== null) {
-            pinned = {
-                providerId: providerId,
-                value: remainingText(usage),
-                usage: usage,
-                stale: provider.stale === true,
-            };
+            pinned = providerSelection(providerId, provider, usage);
         }
         if (!zenFallback && providerId === "opencode_zen"
                 && typeof provider.balanceFormatted === "string"
@@ -101,6 +124,11 @@ function selectProvider(snapshot, options) {
             }
         }
     });
+
+    if (eligibleIds.indexOf(compactProviderOverride) !== -1) {
+        const provider = providers[compactProviderOverride];
+        return providerSelection(compactProviderOverride, provider, quotaUsage(provider));
+    }
 
     return pinned || selected || zenFallback || {
         providerId: "",

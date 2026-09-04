@@ -10,6 +10,7 @@ TestCase {
         reader.snapshotPath = reader.localFilePath(StandardPaths.writableLocation(StandardPaths.GenericCacheLocation)) + "/kodebar/last.json";
         reader.snapshot = null;
         reader.selectionOptions = ({});
+        reader.compactProviderOverride = "";
         reader.selection = ({
             "providerId": "",
             "value": "",
@@ -128,6 +129,34 @@ TestCase {
         reader.readSnapshot("");
         compare(reader.selection.providerId, "");
         verify(!reader.hasSnapshot);
+    }
+
+    function test_cycleOverrideSurvivesRefreshAndFallsBackWhenIneligible() {
+        reader.selectionOptions = ({ "compactProvider": "highest" });
+        reader.readSnapshot(JSON.stringify({
+            "_meta": { "version": 1 },
+            "chatgpt": { "type": "quota-based", "usagePercentage": 42, "stale": false },
+            "opencode_go": { "type": "quota-based", "usagePercentage": 71, "stale": false }
+        }));
+        compare(reader.selection.providerId, "opencode_go");
+
+        verify(reader.cycleCompactProvider(1));
+        compare(reader.selection.providerId, "chatgpt");
+        compare(reader.compactProviderOverride, "chatgpt");
+
+        reader.readSnapshot(JSON.stringify({
+            "_meta": { "version": 1 },
+            "chatgpt": { "type": "quota-based", "usagePercentage": 43, "stale": false },
+            "opencode_go": { "type": "quota-based", "usagePercentage": 71, "stale": false }
+        }));
+        compare(reader.selection.providerId, "chatgpt");
+
+        reader.readSnapshot(JSON.stringify({
+            "_meta": { "version": 1 },
+            "opencode_go": { "type": "quota-based", "usagePercentage": 71, "stale": false }
+        }));
+        compare(reader.selection.providerId, "opencode_go");
+        compare(reader.compactProviderOverride, "");
     }
 
     function test_refreshReadsSnapshotFile() {

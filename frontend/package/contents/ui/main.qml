@@ -110,6 +110,16 @@ PlasmoidItem {
             onTapped: root.expanded = !root.expanded
         }
 
+        WheelHandler {
+            enabled: !root.expanded
+            onWheel: function(wheel) {
+                if (wheel.angleDelta.y === 0)
+                    return
+                if (snapshotReader.cycleCompactProvider(wheel.angleDelta.y > 0 ? -1 : 1))
+                    wheel.accepted = true
+            }
+        }
+
         RowLayout {
             id: compactRow
 

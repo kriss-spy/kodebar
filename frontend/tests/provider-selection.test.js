@@ -180,3 +180,38 @@ const worstWindowWins = context.selectProvider({
 assert.equal(worstWindowWins.providerId, "opencode_go");
 assert.equal(worstWindowWins.value, "0% left");
 assert.equal(worstWindowWins.usage, 100);
+
+const cycleSnapshot = {
+    _meta: { version: 1 },
+    chatgpt: { type: "quota-based", usagePercentage: 42, stale: false },
+    disabled: { type: "quota-based", usagePercentage: 10, stale: false },
+    malformed: { type: "quota-based", usagePercentage: 101, stale: false },
+    opencode_go: {
+        type: "quota-based",
+        windows: { rolling: { usagePercent: 71, status: "ok" } },
+        stale: false,
+    },
+    opencode_zen: { type: "pay-as-you-go", balanceFormatted: "$13.92", stale: false },
+    staleWithoutData: { type: "quota-based", usagePercentage: 50, stale: true, lastUpdated: null },
+    staleWithData: { type: "quota-based", usagePercentage: 65, stale: true, lastUpdated: "2026-09-04T00:00:00Z" },
+};
+const cycleOptions = {
+    enabledProviders: { disabled: false },
+    compactProvider: "highest",
+};
+assert.deepEqual(Array.from(context.eligibleProviderIds(cycleSnapshot, cycleOptions)), [
+    "chatgpt", "opencode_go", "staleWithData",
+]);
+assert.equal(context.cycleProviderId(cycleSnapshot, cycleOptions, "chatgpt", 1), "opencode_go");
+assert.equal(context.cycleProviderId(cycleSnapshot, cycleOptions, "opencode_go", -1), "chatgpt");
+assert.equal(context.cycleProviderId(cycleSnapshot, cycleOptions, "staleWithData", 1), "chatgpt");
+assert.equal(context.cycleProviderId(cycleSnapshot, cycleOptions, "chatgpt", -1), "staleWithData");
+assert.equal(context.cycleProviderId(cycleSnapshot, cycleOptions, "", 1), "chatgpt");
+assert.equal(context.cycleProviderId({ chatgpt: cycleSnapshot.chatgpt }, cycleOptions, "chatgpt", 1), "");
+
+const overrideSelection = context.selectProvider(cycleSnapshot, cycleOptions, "chatgpt");
+assert.equal(overrideSelection.providerId, "chatgpt");
+assert.equal(context.selectProvider({
+    _meta: { version: 1 },
+    opencode_go: cycleSnapshot.opencode_go,
+}, cycleOptions, "chatgpt").providerId, "opencode_go");

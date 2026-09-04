@@ -10,6 +10,7 @@ Item {
     property var snapshot: null
     property var selectionOptions: ({})
     property var selection: ProviderSelection.selectProvider(null)
+    property string compactProviderOverride: ""
     property bool hasSnapshot: false
     property string errorMessage: ""
     property bool pollingEnabled: true
@@ -24,7 +25,28 @@ Item {
 
     onSelectionOptionsChanged: {
         if (root.snapshot)
-            root.selection = ProviderSelection.selectProvider(root.snapshot, root.selectionOptions);
+            root.updateSelection();
+    }
+
+    function updateSelection() {
+        const eligibleProviderIds = ProviderSelection.eligibleProviderIds(root.snapshot, root.selectionOptions);
+        if (root.compactProviderOverride
+                && eligibleProviderIds.indexOf(root.compactProviderOverride) === -1) {
+            root.compactProviderOverride = "";
+        }
+        root.selection = ProviderSelection.selectProvider(
+            root.snapshot, root.selectionOptions, root.compactProviderOverride);
+    }
+
+    function cycleCompactProvider(direction) {
+        const providerId = ProviderSelection.cycleProviderId(
+            root.snapshot, root.selectionOptions, root.selection.providerId, direction);
+        if (!providerId)
+            return false;
+
+        root.compactProviderOverride = providerId;
+        root.updateSelection();
+        return true;
     }
 
     function readSnapshot(output) {
@@ -34,7 +56,7 @@ Item {
                 throw new Error("invalid Snapshot root");
 
             root.snapshot = snapshot;
-            root.selection = ProviderSelection.selectProvider(snapshot, root.selectionOptions);
+            root.updateSelection();
             root.hasSnapshot = true;
             root.errorMessage = "";
         } catch (error) {
