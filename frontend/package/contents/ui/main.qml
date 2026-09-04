@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import "ProviderCards.js" as ProviderCards
 import "UsagePresentation.js" as UsagePresentation
+import "WheelNavigation.js" as WheelNavigation
 import QtQuick
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
@@ -90,9 +91,31 @@ PlasmoidItem {
         id: compactItem
 
         readonly property bool horizontal: Plasmoid.formFactor !== PlasmaCore.Types.Vertical
+        readonly property real pixelWheelStepSize: Kirigami.Units.gridUnit * 2
         readonly property real remainingFraction: root.selectedProvider.usage === null
             ? 0
             : Math.max(0, Math.min(100, 100 - root.selectedProvider.usage)) / 100
+        property real angleWheelRemainder: 0
+        property real pixelWheelRemainder: 0
+
+        function handleWheel(wheel) {
+            const usesAngleDelta = wheel.angleDelta.y !== 0
+            const delta = usesAngleDelta ? wheel.angleDelta.y : wheel.pixelDelta.y
+            if (delta === 0 || !snapshotReader.canCycleCompactProvider())
+                return false
+
+            const result = WheelNavigation.consumeDelta(
+                delta,
+                usesAngleDelta ? compactItem.angleWheelRemainder : compactItem.pixelWheelRemainder,
+                usesAngleDelta ? 120 : compactItem.pixelWheelStepSize)
+            if (usesAngleDelta)
+                compactItem.angleWheelRemainder = result.remainder
+            else
+                compactItem.pixelWheelRemainder = result.remainder
+            if (result.steps !== 0)
+                snapshotReader.cycleCompactProviderSteps(-result.steps)
+            return true
+        }
 
         implicitWidth: Plasmoid.formFactor === PlasmaCore.Types.Vertical
             ? Math.min(compactRow.implicitWidth, Kirigami.Units.iconSizes.smallMedium)
@@ -115,11 +138,7 @@ PlasmoidItem {
             enabled: !root.expanded
             acceptedButtons: Qt.NoButton
             propagateComposedEvents: true
-            onWheel: wheel => {
-                const verticalDelta = wheel.angleDelta.y || wheel.pixelDelta.y
-                wheel.accepted = verticalDelta !== 0
-                    && snapshotReader.cycleCompactProvider(verticalDelta > 0 ? -1 : 1)
-            }
+            onWheel: wheel => wheel.accepted = compactItem.handleWheel(wheel)
         }
 
         RowLayout {

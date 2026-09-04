@@ -16,7 +16,7 @@ try {
     assert.equal(result.status, 0, result.stderr);
 
     const artifact = result.stdout.trim();
-    assert.equal(path.basename(artifact), "kodebar-0.2.0.plasmoid");
+    assert.equal(path.basename(artifact), "kodebar-0.2.1.plasmoid");
 
     const listing = spawnSync("unzip", ["-Z1", artifact], { encoding: "utf8" });
     assert.equal(listing.status, 0, listing.stderr);
@@ -34,7 +34,7 @@ try {
 
     const metadata = spawnSync("unzip", ["-p", artifact, "metadata.json"], { encoding: "utf8" });
     assert.equal(metadata.status, 0, metadata.stderr);
-    assert.equal(JSON.parse(metadata.stdout).KPlugin.Version, "0.2.0");
+    assert.equal(JSON.parse(metadata.stdout).KPlugin.Version, "0.2.1");
 
     const installRoot = path.join(outputDirectory, "plasma/plasmoids");
     const install = spawnSync("kpackagetool6", [

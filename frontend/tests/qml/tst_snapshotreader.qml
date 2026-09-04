@@ -159,6 +159,22 @@ TestCase {
         compare(reader.compactProviderOverride, "");
     }
 
+    function test_cycleMultipleWheelSteps() {
+        reader.readSnapshot(JSON.stringify({
+            "_meta": { "version": 1 },
+            "alpha": { "type": "quota-based", "usagePercentage": 10, "stale": false },
+            "beta": { "type": "quota-based", "usagePercentage": 20, "stale": false },
+            "gamma": { "type": "quota-based", "usagePercentage": 30, "stale": false }
+        }));
+        compare(reader.selection.providerId, "gamma");
+        verify(reader.canCycleCompactProvider());
+
+        verify(reader.cycleCompactProviderSteps(-2));
+        compare(reader.selection.providerId, "alpha");
+        verify(reader.cycleCompactProviderSteps(2));
+        compare(reader.selection.providerId, "gamma");
+    }
+
     function test_refreshReadsSnapshotFile() {
         reader.snapshotPath = Qt.resolvedUrl("../fixtures/snapshot.json").toString().replace(/^file:\/\//, "");
 

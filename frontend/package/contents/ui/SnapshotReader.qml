@@ -49,6 +49,19 @@ Item {
         return true;
     }
 
+    function canCycleCompactProvider() {
+        return ProviderSelection.eligibleProviderIds(
+            root.snapshot, root.selectionOptions).length > 1;
+    }
+
+    function cycleCompactProviderSteps(steps) {
+        const direction = steps < 0 ? -1 : 1;
+        let cycled = false;
+        for (let step = 0; step < Math.abs(steps); ++step)
+            cycled = root.cycleCompactProvider(direction) || cycled;
+        return cycled;
+    }
+
     function readSnapshot(output) {
         try {
             const snapshot = JSON.parse(output);

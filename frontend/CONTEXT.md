@@ -5,7 +5,7 @@ A KDE Plasma Plasmoid (QML) that renders AI provider usage/quota data from the B
 ## Language
 
 **Compact Representation**:
-The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary driven by the highest actionable quota Provider, a user-pinned Provider, or the Zen balance fallback.
+The panel element shown when the Plasmoid is collapsed. Displays a brief text/icon summary driven by the highest actionable quota Provider, a user-pinned Provider, the Zen balance fallback, or a temporary Provider selected by scrolling over the representation.
 _Avoid_: tray icon, bar text, status text
 
 **Full Representation**:
@@ -28,7 +28,7 @@ _Avoid_: error icon, warning, outdated marker
 
 - The **Snapshot Reader** reads the file written by the Backend and distributes data to **Provider Cards**
 - Each **Provider** in the Snapshot gets one **Provider Card** in the **Full Representation**
-- The **Compact Representation** is driven by the highest-usage provider or a user-pinned provider from the Snapshot
+- The **Compact Representation** is driven by the highest-usage Provider, a user-pinned Provider, or an in-memory scroll override from the Snapshot
 - A **Stale Badge** appears on a **Provider Card** when the `stale` flag is true for that provider
 
 ## Example dialogue
