@@ -110,14 +110,15 @@ PlasmoidItem {
             onTapped: root.expanded = !root.expanded
         }
 
-        WheelHandler {
+        MouseArea {
+            anchors.fill: parent
             enabled: !root.expanded
-            onWheel: function(wheel) {
+            acceptedButtons: Qt.NoButton
+            propagateComposedEvents: true
+            onWheel: wheel => {
                 const verticalDelta = wheel.angleDelta.y || wheel.pixelDelta.y
-                if (verticalDelta === 0)
-                    return
-                if (snapshotReader.cycleCompactProvider(verticalDelta > 0 ? -1 : 1))
-                    wheel.accepted = true
+                wheel.accepted = verticalDelta !== 0
+                    && snapshotReader.cycleCompactProvider(verticalDelta > 0 ? -1 : 1)
             }
         }
 
