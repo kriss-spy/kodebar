@@ -15,6 +15,7 @@ PlasmoidItem {
     id: root
 
     readonly property var enabledProviders: ({
+        "antigravity": Plasmoid.configuration.enabledAntigravity,
         "chatgpt": Plasmoid.configuration.enabledChatGPT,
         "opencode_go": Plasmoid.configuration.enabledOpenCodeGo,
         "opencode_zen": false
@@ -35,6 +36,7 @@ PlasmoidItem {
 
     function startGuidedLogin(providerId) {
         const commands = {
+            "antigravity": "konsole -e agy",
             "chatgpt": "konsole -e codex login",
             "opencode_go": "konsole -e kodebar login opencode",
         }

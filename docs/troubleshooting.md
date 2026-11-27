@@ -17,35 +17,46 @@ changes the base directory. Provider setup and data sources are described in
 
 ## Antigravity does not appear
 
-Antigravity shares the OAuth Credential File written by Gemini CLI or
-Antigravity:
+Run `agy` in a terminal and complete Google sign-in. Kodebar reads the unlocked
+Linux Secret Service item with `service=gemini` and `username=antigravity`.
+If no item exists, it reads
+`~/.gemini/antigravity-cli/antigravity-oauth-token`.
 
-```bash
-gemini login
-# Or, if installed:
-agy login
+If your desktop wallet is locked, unlock it before refreshing Kodebar.
+Kodebar does not show wallet prompts or change shared credentials. Expired
+access tokens refresh in memory. If Google rejects the refresh token, sign
+in through `agy` again.
+
+Run `kodebar status --json` and look for the top-level `antigravity` entry.
+Its `quotaGroups` contain the measured quota windows and reset times.
+The Compact Representation uses the highest usage across these windows.
+Unknown and disabled quota windows are excluded. Probe failures preserve the
+last successful Snapshot data and mark it stale.
+
+Kodebar uses the internal `retrieveUserQuotaSummary` API with the Antigravity
+Hub client identity. The protocol may change. A quota access denial can mean
+account eligibility restrictions; signing in again does not guarantee access.
+Legacy `~/.gemini/oauth_creds.json`, IDE SQLite state, and local language-server
+Probes are not used by this implementation.
+
+Token refresh requires OAuth client metadata matching the installed Antigravity
+application. Kodebar does not bundle an OAuth client ID or client secret.
+Store the matching installed-app values outside the repository:
+
+```json
+{
+  "clientId": "<installed-app client ID>",
+  "clientSecret": "<installed-app client secret>"
+}
 ```
 
-Either flow should create `~/.gemini/oauth_creds.json`. Do not create or edit
-that file manually. Run `kodebar status --json` again and look for the
-top-level `antigravity` entry.
+Save this as `~/.config/kodebar/antigravity-oauth.json` with `0600` permissions.
+Kodebar honors an absolute `XDG_CONFIG_HOME` instead of `~/.config` when set.
+Alternatively, set both `ANTIGRAVITY_OAUTH_CLIENT_ID` and
+`ANTIGRAVITY_OAUTH_CLIENT_SECRET` in the backend environment. Set both values
+from the same installed-app client. Environment variables take precedence.
+An access token that is still valid can be probed without this metadata.
 
-Kodebar refreshes an expired access token automatically. If the Snapshot says
-the refresh token is missing, invalid, or revoked, repeat `gemini login` or
-`agy login`; replacing only the access token will not repair the session. See
-[PRD §5.1](../PRD.md#51-antigravity--gemini-probe-detail).
-
-### Code Assist deprecation watch
-
-Google announced that Gemini Code Assist for individuals would stop serving
-through Gemini CLI on June 18, 2026. If `retrieveUserQuota` begins returning
-403 or persistent provider errors after working previously, the upstream
-endpoint may have changed; it does not necessarily mean the local Credential
-File is corrupt.
-
-The planned fallbacks—reading Antigravity `state.vscdb` or probing the running
-Antigravity language server—are not current recovery steps. Keep Kodebar
-updated and consult the deprecation notes in [PRD §5.1](../PRD.md#51-antigravity--gemini-probe-detail).
 
 ## OpenCode Go login or usage fails
 

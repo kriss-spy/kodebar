@@ -75,6 +75,7 @@ const filteredCards = context.cards({
     chatgpt: { type: "quota-based", limits: {} },
     opencode_go: { type: "quota-based", windows: {} },
 }, Date.now(), {
+    antigravity: false,
     chatgpt: false,
     opencode_go: true,
     opencode_zen: false,
@@ -85,6 +86,7 @@ assert.equal(context.countdown("not-a-timestamp", Date.now()), "No reset time");
 assert.equal(context.ageText("not-a-timestamp", Date.now()), "Never");
 
 const setupCards = context.cards({ _meta: { version: 1 } }, Date.now(), {
+    antigravity: false,
     chatgpt: false,
     opencode_go: true,
     opencode_zen: false,
@@ -155,3 +157,17 @@ assert.equal(context.ageText("", Date.now()), "Never");
 assert.equal(context.providerCompactTitle("opencode_go"), "Go");
 assert.equal(context.providerCompactTitle("opencode_zen"), "Zen");
 assert.equal(context.iconSource("unknown"), "view-statistics");
+
+const antigravity = context.cards({ antigravity: {
+    type: "quota-based", usagePercentage: 80,
+    quotaGroups: [{ label: "Gemini", windows: {
+        session: { label: "5-hour", usagePercent: 25, resetAt: "2026-08-23T06:00:00Z" },
+        weekly: { label: "Weekly", usagePercent: 80 },
+    } }], stale: true, lastUpdated: "2026-08-23T00:00:00Z",
+}}, Date.parse("2026-08-23T01:00:00Z"))[0];
+assert.equal(antigravity.title, "Antigravity");
+assert.equal(antigravity.rows[0].label, "Gemini · 5-hour");
+assert.equal(antigravity.rows[0].resetText, "Resets in 5h");
+assert.equal(antigravity.rows[1].usagePercent, 80);
+assert.equal(antigravity.stale, true);
+assert.equal(context.setupCard("antigravity").actionLabel, "Sign in with agy");

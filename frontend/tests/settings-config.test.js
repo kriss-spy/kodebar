@@ -7,6 +7,7 @@ const schema = fs.readFileSync(path.join(packageRoot, "config/main.xml"), "utf8"
 const page = fs.readFileSync(path.join(packageRoot, "ui/configGeneral.qml"), "utf8");
 
 for (const providerKey of [
+    "enabledAntigravity",
     "enabledChatGPT",
     "enabledOpenCodeGo",
 ]) {

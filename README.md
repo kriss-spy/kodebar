@@ -33,19 +33,23 @@ Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
 
 | Provider | Auth source | Probe method | Verified |
 |---|---|---|---|
+| Antigravity | `agy` Linux Secret Service session or CLI token file | Native Cloud Code quota summary | Live-tested on Linux; internal endpoint |
 | OpenCode Go | API key in OpenCode `auth.json` | Official `GET /zen/go/v1/usage` API | ✅ Live-tested |
 | OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
 | ChatGPT subscription plans | Read-only `~/.codex/auth.json` session | Native ChatGPT quota Probe | ✅ Live source validated; internal endpoint |
 
-OpenCode Go and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
+Antigravity, OpenCode Go, and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
 
-Antigravity was removed in 0.2.0: Google stopped serving Code Assist quota for individual accounts (2026-06-18), so the probe permanently returned a license 403.
+Antigravity uses its current quota-summary API. Kodebar reads `agy` credentials from Linux Secret Service (`service=gemini`, `username=antigravity`), with `~/.gemini/antigravity-cli/antigravity-oauth-token` as the file fallback. It refreshes expired access tokens in memory without changing the shared session. Token refresh requires matching OAuth client metadata in the private local config or environment; see [Antigravity setup](docs/troubleshooting.md#antigravity-does-not-appear). Legacy Gemini CLI credentials and its retired Code Assist quota endpoint are not used.
 
 ## Prerequisites
 
 Before the backend can probe anything, you must already have authenticated locally:
 
 ```bash
+# Antigravity: run agy once and complete Google sign-in.
+agy
+
 kodebar login opencode  # opens the browser, validates the key, writes OpenCode auth.json
 
 # ChatGPT: sign in with ChatGPT in Codex once. Kodebar reads the current

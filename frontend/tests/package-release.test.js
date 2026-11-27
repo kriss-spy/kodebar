@@ -27,6 +27,7 @@ try {
         "NOTICE",
         "contents/ui/main.qml",
         "contents/images/provider-chatgpt.svg",
+        "contents/images/provider-antigravity.svg",
     ]) {
         assert.ok(entries.includes(requiredEntry), `${requiredEntry} missing from package`);
     }

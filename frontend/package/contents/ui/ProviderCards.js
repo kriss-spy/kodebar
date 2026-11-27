@@ -1,6 +1,7 @@
 .pragma library
 
 const PROVIDERS = [
+    { id: "antigravity", title: qsTr("Antigravity"), compactTitle: qsTr("Antigravity"), icon: "../images/provider-antigravity.svg", setup: qsTr("Sign in with agy to see Antigravity quota") },
     { id: "opencode_go", title: qsTr("OpenCode Go"), compactTitle: qsTr("Go"), icon: "../images/provider-opencode-go.svg", setup: qsTr("Connect your OpenCode account to see Go plan limits") },
     { id: "opencode_zen", title: qsTr("OpenCode Zen"), compactTitle: qsTr("Zen"), icon: "../images/provider-opencode.svg", setup: qsTr("Configure optional OpenCode Zen credentials") },
     { id: "chatgpt", title: qsTr("ChatGPT"), compactTitle: qsTr("ChatGPT"), icon: "../images/provider-chatgpt.svg", setup: qsTr("Connect your ChatGPT account to see Codex plan limits") },
@@ -150,8 +151,42 @@ function chatGptRows(provider, nowMs) {
     return rows;
 }
 
+function antigravityRows(provider, nowMs) {
+    const rows = [];
+    (provider.quotaGroups || []).forEach(function(group) {
+        Object.keys(group.windows || {}).forEach(function(key) {
+            const window = group.windows[key];
+            if (typeof window.usagePercent !== "number" || !isFinite(window.usagePercent))
+                return;
+            rows.push({
+                label: qsTr("%1 · %2").replace("%1", group.label).replace("%2",
+                    key.endsWith("-5h") ? qsTr("Session")
+                    : key.endsWith("-weekly") ? qsTr("Weekly") : window.label),
+                usagePercent: window.usagePercent,
+                resetText: countdown(window.resetAt, nowMs),
+                statusText: "",
+            });
+        });
+    });
+    return rows;
+}
+
 function card(providerId, provider, nowMs) {
     const definition = providerDefinition(providerId);
+    if (providerId === "antigravity") {
+        return {
+            providerId: providerId,
+            title: definition.title,
+            rows: antigravityRows(provider, nowMs),
+            stale: provider.stale === true,
+            lastUpdated: provider.lastUpdated || "",
+            error: errorText(provider.error),
+            detailText: "",
+            secondaryText: "",
+            connected: !isAuthenticationError(provider.error),
+            actionLabel: isAuthenticationError(provider.error) ? qsTr("Reconnect Antigravity") : "",
+        };
+    }
     if (providerId === "opencode_go") {
         return {
             providerId: providerId,
@@ -211,7 +246,8 @@ function setupCard(providerId) {
         detailText: definition.setup,
         secondaryText: qsTr("No Snapshot data yet"),
         connected: false,
-        actionLabel: providerId === "chatgpt" ? qsTr("Sign in with ChatGPT")
+        actionLabel: providerId === "antigravity" ? qsTr("Sign in with agy")
+            : providerId === "chatgpt" ? qsTr("Sign in with ChatGPT")
             : providerId === "opencode_go" ? qsTr("Start guided login")
             : "",
     };

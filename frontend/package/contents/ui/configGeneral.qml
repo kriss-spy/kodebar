@@ -8,6 +8,7 @@ import org.kde.kirigami as Kirigami
 KCM.SimpleKCM {
     id: root
 
+    property alias cfg_enabledAntigravity: antigravity.checked
     property alias cfg_enabledChatGPT: chatGpt.checked
     property alias cfg_enabledOpenCodeGo: openCodeGo.checked
     property alias cfg_refreshIntervalSeconds: refreshInterval.value
@@ -27,6 +28,11 @@ KCM.SimpleKCM {
             Kirigami.FormData.isSection: true
             text: qsTr("Subscription plans")
             level: 3
+        }
+
+        CheckBox {
+            id: antigravity
+            text: qsTr("Antigravity")
         }
 
         CheckBox {
@@ -63,6 +69,7 @@ KCM.SimpleKCM {
             valueRole: "value"
             model: [
                 { text: qsTr("Highest usage"), value: "highest" },
+                { text: qsTr("Antigravity"), value: "antigravity" },
                 { text: qsTr("ChatGPT"), value: "chatgpt" },
                 { text: qsTr("OpenCode Go"), value: "opencode_go" },
             ]

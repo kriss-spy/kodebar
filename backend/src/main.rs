@@ -5,6 +5,7 @@ mod snapshot_signal;
 use clap::{Parser, Subcommand, ValueEnum};
 use login::{LoginOutcome, SystemBrowser, TerminalSecretReader};
 use probe::ProbeError;
+use probe::antigravity::{self, AntigravityPayload};
 use probe::chatgpt::{self, ChatGptClient, ChatGptPayload};
 use probe::opencode_dashboard::DashboardClient;
 use probe::opencode_go::{self, OpenCodeGoClient, OpenCodeGoPayload};
@@ -68,6 +69,7 @@ struct SnapshotMeta {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 enum ProviderPayload {
+    Antigravity(AntigravityPayload),
     ChatGpt(ChatGptPayload),
     OpenCodeGo(OpenCodeGoPayload),
     OpenCodeZen(OpenCodeZenPayload),
@@ -436,22 +438,30 @@ fn run_probe_tasks_at(
 /// are independent and isolated — one failing must not block others (PRD
 /// §7.3). The prior Snapshot (read from the cache file) supplies
 /// last-known-good data for the Stale path.
-fn build_snapshot<D, G, H>(
+fn build_snapshot<D, G, H, A>(
     dashboard_client: Arc<D>,
     go_client: Arc<G>,
     chatgpt_client: Arc<H>,
     dashboard_credentials_path: &Path,
     opencode_auth_path: Result<PathBuf, ProbeError>,
     chatgpt_auth_path: Result<PathBuf, ProbeError>,
+    antigravity_probe: A,
 ) -> Snapshot
 where
     D: DashboardClient + Send + Sync + 'static,
     G: OpenCodeGoClient + Send + Sync + 'static,
     H: ChatGptClient + Send + Sync + 'static,
+    A: FnOnce() -> Result<AntigravityPayload, ProbeError> + Send + 'static,
 {
     let mut prior = load_prior_snapshot().providers;
     let zen_credentials_path = dashboard_credentials_path.to_owned();
     let tasks = vec![
+        ProbeTask::new(
+            "antigravity",
+            prior.remove("antigravity"),
+            ProviderPayload::Antigravity(AntigravityPayload::empty()),
+            move || antigravity_probe().map(ProviderPayload::Antigravity),
+        ),
         ProbeTask::new(
             "chatgpt",
             prior.remove("chatgpt"),
@@ -548,6 +558,8 @@ fn run(cli: Cli) -> Result<(), String> {
         .map_err(|e| format!("failed to init OpenCode Go HTTP client: {e:?}"))?;
     let chatgpt_client = probe::chatgpt::ReqwestChatGptClient::new()
         .map_err(|e| format!("failed to init ChatGPT HTTP client: {e:?}"))?;
+    let antigravity_client =
+        antigravity::ReqwestAntigravityClient::new().map_err(|error| error.user_message())?;
     let snapshot = build_snapshot(
         Arc::new(dashboard_client),
         Arc::new(go_client),
@@ -555,6 +567,7 @@ fn run(cli: Cli) -> Result<(), String> {
         &probe::opencode_dashboard::default_credentials_path(),
         probe::opencode_auth::default_auth_path(),
         probe::chatgpt::default_auth_path(),
+        move || antigravity::run(&antigravity_client),
     );
     match cli.command {
         Some(Command::Status { json }) => {
@@ -639,6 +652,41 @@ mod tests {
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
         }
         path
+    }
+
+    #[test]
+    fn antigravity_snapshot_round_trips_and_preserves_last_good_on_failure() {
+        let payload: AntigravityPayload = serde_json::from_value(serde_json::json!({
+            "type": "quota-based", "usagePercentage": 80,
+            "quotaGroups": [{"label": "Gemini", "windows": {
+                "weekly": {"label": "Weekly", "usagePercent": 80, "resetAt": null}
+            }}]
+        }))
+        .unwrap();
+        let prior = ProviderEntry::fresh(
+            ProviderPayload::Antigravity(payload),
+            "2026-11-27T00:00:00Z".into(),
+        );
+        let mut providers = BTreeMap::new();
+        merge_probe_result_at(
+            "antigravity",
+            Err(ProbeError::RateLimited),
+            Some(prior.clone()),
+            ProviderPayload::Antigravity(AntigravityPayload::empty()),
+            &mut providers,
+            chrono::Utc::now(),
+        );
+        let entry = &providers["antigravity"];
+        assert!(entry.stale);
+        assert_eq!(entry.payload, prior.payload);
+        assert_eq!(entry.last_updated, prior.last_updated);
+        let snapshot = Snapshot {
+            providers,
+            ..empty_snapshot()
+        };
+        let round_trip: Snapshot =
+            serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+        assert_eq!(round_trip, snapshot);
     }
 
     #[test]

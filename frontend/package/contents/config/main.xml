@@ -5,6 +5,10 @@
     <kcfgfile name=""/>
 
     <group name="General">
+        <entry name="enabledAntigravity" type="Bool">
+            <label>Whether Antigravity is included in Kodebar displays.</label>
+            <default>true</default>
+        </entry>
         <entry name="enabledChatGPT" type="Bool">
             <label>Whether ChatGPT is included in Kodebar displays.</label>
             <default>true</default>

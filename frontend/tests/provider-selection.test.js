@@ -215,3 +215,16 @@ assert.equal(context.selectProvider({
     _meta: { version: 1 },
     opencode_go: cycleSnapshot.opencode_go,
 }, cycleOptions, "chatgpt").providerId, "opencode_go");
+
+const antigravitySnapshot = {
+    antigravity: { type: "quota-based", usagePercentage: 80, stale: false },
+    chatgpt: { type: "quota-based", usagePercentage: 20, stale: false },
+};
+assert.equal(context.selectProvider(antigravitySnapshot).providerId, "antigravity");
+assert.equal(context.selectProvider(antigravitySnapshot).value, "20% left");
+assert.equal(context.selectProvider(antigravitySnapshot, {
+    enabledProviders: { antigravity: false },
+}).providerId, "chatgpt");
+assert.equal(context.selectProvider({ antigravity: {
+    type: "quota-based", usagePercentage: 0, stale: true,
+}}).providerId, "");

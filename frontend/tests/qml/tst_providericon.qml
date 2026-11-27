@@ -26,6 +26,14 @@ TestCase {
         compare(providerIcon.iconSource, "../images/provider-opencode.svg");
     }
 
+    function test_antigravityIdentityLoadsAsThemeMask() {
+        providerIcon.providerId = "antigravity";
+        compare(providerIcon.iconSource, "../images/provider-antigravity.svg");
+        tryCompare(providerIcon, "status", ProviderIcon.Ready, 2000);
+        verify(providerIcon.valid);
+        verify(providerIcon.isMask);
+    }
+
     function test_unknownProviderUsesGenericIdentity() {
         providerIcon.providerId = "unknown";
         compare(providerIcon.iconSource, "view-statistics");

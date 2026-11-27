@@ -13,5 +13,27 @@
       }
     },
     "stale": false
+  },
+  "antigravity": {
+    "type": "quota-based",
+    "usagePercentage": 80,
+    "quotaGroups": [
+      {
+        "label": "Gemini Models",
+        "windows": {
+          "gemini-5h": {
+            "label": "5-hour",
+            "usagePercent": 25,
+            "resetAt": "2026-11-27T18:00:00Z"
+          },
+          "gemini-weekly": {
+            "label": "Weekly",
+            "usagePercent": 80,
+            "resetAt": "2026-12-03T12:00:00Z"
+          }
+        }
+      }
+    ],
+    "stale": false
   }
 }

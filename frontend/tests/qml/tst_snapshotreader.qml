@@ -181,8 +181,8 @@ TestCase {
         reader.refresh();
 
         tryCompare(reader, "hasSnapshot", true, 2000);
-        compare(reader.selection.providerId, "chatgpt");
-        compare(reader.selection.value, "33% left");
+        compare(reader.selection.providerId, "antigravity");
+        compare(reader.selection.value, "20% left");
     }
 
     name: "SnapshotReader"

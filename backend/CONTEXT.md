@@ -25,7 +25,7 @@ A time-bounded usage limit for a Provider. Antigravity has per-model windows wit
 _Avoid_: limit, period, tier
 
 **Credential File**:
-A file on disk containing authentication tokens that a Probe reads. Antigravity: `~/.gemini/oauth_creds.json`. OpenCode Go: `~/.local/share/opencode/auth.json` (API key). ChatGPT: read-only `~/.codex/auth.json` file session (0600; never refreshed or written by Kodebar). Optional OpenCode Zen dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms).
+A file on disk containing authentication tokens that a Probe reads. Antigravity: the unlocked Linux Secret Service `gemini` / `antigravity` session, falling back to `~/.gemini/antigravity-cli/antigravity-oauth-token`. Shared credentials remain read-only; refreshed access tokens stay in memory. OpenCode Go: `~/.local/share/opencode/auth.json` (API key). ChatGPT: read-only `~/.codex/auth.json` file session (0600; never refreshed or written by Kodebar). Optional OpenCode Zen dashboard: `~/.config/kodebar/opencode-go.json` (workspace ID + auth cookie, 0600 perms).
 _Avoid_: auth file, token file
 
 **Token Refresh**:
@@ -41,7 +41,7 @@ _Avoid_: re-auth, re-login (those imply user action; refresh is automatic)
 
 ## Example dialogue
 
-> **Dev:** "When the Antigravity **Probe** gets a 429 from `retrieveUserQuota`, do we mark the **Snapshot** **Stale** or retry?"
+> **Dev:** "When the Antigravity **Probe** gets a 429 from `retrieveUserQuotaSummary`, do we mark the **Snapshot** **Stale** or retry?"
 > **Domain expert:** "Mark it stale and serve the last-good data. Don't retry immediately — back off. The user doesn't need real-time quota, they need to know roughly where they stand."
 
 ## Flagged ambiguities
