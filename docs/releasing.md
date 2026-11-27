@@ -53,7 +53,7 @@ kpackagetool6 --type Plasma/Applet --remove ai.kodebar
 - Use the metadata name, summary, version, homepage, issue URL, and MIT license.
 - State the Plasma 6 minimum and native `kodebar` backend requirement.
 - Include screenshots of both the Compact and Full Representations.
-- Mention the four current Providers and that ChatGPT concerns subscription
+- Mention the six current Providers and that ChatGPT concerns subscription
   quota rather than OpenAI API billing.
 - Keep `LICENSE`, `NOTICE`, and the Provider SVG files inside the archive.
 

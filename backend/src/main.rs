@@ -1,3 +1,4 @@
+mod fish_login;
 mod login;
 mod probe;
 mod snapshot_signal;
@@ -19,7 +20,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-const PROBE_TIMEOUT: Duration = Duration::from_secs(15);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Kodebar — Linux-native AI provider usage tracker.
 #[derive(Parser, Debug)]
@@ -51,6 +52,8 @@ enum Command {
 #[derive(ValueEnum, Debug, Clone, Copy)]
 enum LoginProvider {
     Opencode,
+    XPremium,
+    FishAudio,
 }
 
 /// Snapshot metadata.
@@ -71,6 +74,8 @@ struct SnapshotMeta {
 enum ProviderPayload {
     Antigravity(AntigravityPayload),
     ChatGpt(ChatGptPayload),
+    XPremium(probe::x_premium::XPremiumPayload),
+    FishAudio(probe::fish_audio::FishAudioPayload),
     OpenCodeGo(OpenCodeGoPayload),
     OpenCodeZen(OpenCodeZenPayload),
 }
@@ -457,6 +462,18 @@ where
     let zen_credentials_path = dashboard_credentials_path.to_owned();
     let tasks = vec![
         ProbeTask::new(
+            "fish_audio",
+            prior.remove("fish_audio"),
+            ProviderPayload::FishAudio(probe::fish_audio::FishAudioPayload::empty()),
+            || probe::fish_audio::run().map(ProviderPayload::FishAudio),
+        ),
+        ProbeTask::new(
+            "x_premium",
+            prior.remove("x_premium"),
+            ProviderPayload::XPremium(probe::x_premium::XPremiumPayload::empty()),
+            || probe::x_premium::run().map(ProviderPayload::XPremium),
+        ),
+        ProbeTask::new(
             "antigravity",
             prior.remove("antigravity"),
             ProviderPayload::Antigravity(AntigravityPayload::empty()),
@@ -525,6 +542,21 @@ fn load_prior_snapshot() -> Snapshot {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
+    if let Some(Command::Login {
+        provider: LoginProvider::FishAudio,
+    }) = &cli.command
+    {
+        return fish_login::run();
+    }
+    if let Some(Command::Login {
+        provider: LoginProvider::XPremium,
+    }) = &cli.command
+    {
+        probe::x_premium::run().map_err(|error| error.user_message())?;
+        println!("Existing Grok login verified for X Premium weekly usage.");
+        return Ok(());
+    }
+
     if let Some(Command::Login {
         provider: LoginProvider::Opencode,
     }) = &cli.command
@@ -713,6 +745,46 @@ mod tests {
     fn snapshot_last_updated_is_null_for_empty() {
         let snapshot = empty_snapshot();
         assert!(snapshot._meta.last_updated.is_none());
+    }
+
+    #[test]
+    fn fish_audio_snapshot_preserves_credit_balance_kind() {
+        let mut snapshot = empty_snapshot();
+        snapshot.providers.insert(
+            "fish_audio".into(),
+            ProviderEntry {
+                payload: ProviderPayload::FishAudio(probe::fish_audio::FishAudioPayload::empty()),
+                stale: true,
+                last_updated: None,
+                error: None,
+                consecutive_failures: 0,
+                retry_after: None,
+            },
+        );
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Snapshot>(&encoded).unwrap(),
+            snapshot
+        );
+    }
+
+    #[test]
+    fn x_premium_snapshot_round_trips_without_changing_provider_kind() {
+        let mut snapshot = empty_snapshot();
+        snapshot.providers.insert(
+            "x_premium".into(),
+            ProviderEntry {
+                payload: ProviderPayload::XPremium(probe::x_premium::XPremiumPayload::empty()),
+                stale: true,
+                last_updated: None,
+                error: None,
+                consecutive_failures: 0,
+                retry_after: None,
+            },
+        );
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        let decoded: Snapshot = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, snapshot);
     }
 
     #[test]

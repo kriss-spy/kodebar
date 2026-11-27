@@ -228,3 +228,13 @@ assert.equal(context.selectProvider(antigravitySnapshot, {
 assert.equal(context.selectProvider({ antigravity: {
     type: "quota-based", usagePercentage: 0, stale: true,
 }}).providerId, "");
+
+const fishSnapshot = { fish_audio: { type: "credit-balance", creditsRemaining: 250555 } };
+assert.equal(context.selectProvider(fishSnapshot, {}).value, "250555 credits");
+assert.equal(context.selectProvider(fishSnapshot, {}).usage, null);
+assert.equal(context.selectProvider({fish_audio: {type: "credit-balance", creditsRemaining: 0, stale: true}}, {}).providerId, "");
+
+const orderSnapshot = { chatgpt: {type: "quota-based", usagePercentage: 10}, fish_audio: {type: "credit-balance", creditsRemaining: 20} };
+const orderOptions = { providerOrder: ["fish_audio", "chatgpt"] };
+assert.equal(context.eligibleProviderIds(orderSnapshot, orderOptions).join(","), "fish_audio,chatgpt");
+assert.equal(context.cycleProviderId(orderSnapshot, orderOptions, "fish_audio", 1), "chatgpt");

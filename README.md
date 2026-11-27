@@ -2,7 +2,7 @@
 
 > Linux-native AI provider usage tracker for the OpenCode ecosystem. Standalone backend + KDE Plasma Plasmoid frontend. No upstream CLI dependency.
 
-**Status:** M4 implemented; M5 Provider expansion is next
+**Status:** v0.3.0 includes six Providers, saved manual ordering, and bounded network retries.
 
 ---
 
@@ -36,9 +36,11 @@ Kodebar backend (native, DE-agnostic)            →  Plasmoid (QML)
 | Antigravity | `agy` Linux Secret Service session or CLI token file | Native Cloud Code quota summary | Live-tested on Linux; internal endpoint |
 | OpenCode Go | API key in OpenCode `auth.json` | Official `GET /zen/go/v1/usage` API | ✅ Live-tested |
 | OpenCode Zen | Same workspace ID + auth cookie | OpenCode workspace page scrape | ✅ Live-tested |
+| Fish Audio subscription | Dedicated OAuth session in `kodebar/fish-audio.json` | Native MCP `get_credit_balance` | Live-tested, including token refresh |
+| X Premium shared subscription | Read-only `~/.grok/auth.json` OIDC session | Native Grok CLI billing API | Live-tested on Linux |
 | ChatGPT subscription plans | Read-only `~/.codex/auth.json` session | Native ChatGPT quota Probe | ✅ Live source validated; internal endpoint |
 
-Antigravity, OpenCode Go, and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Browser-cookie-based providers (Cursor, etc.) are v2.
+Antigravity, OpenCode Go, and ChatGPT plan usage are the primary quota Providers. OpenCode Zen balance is optional. ChatGPT tracks subscription quota, not pay-as-you-go OpenAI API usage. Claude and OpenRouter remain out of scope. Gemini via API key is not tracked (pay-per-use, no quota window). Other browser-cookie-based providers remain out of scope. X Premium reads the shared subscription allowance through the Grok billing API; legacy X-only plans are not verified.
 
 Antigravity uses its current quota-summary API. Kodebar reads `agy` credentials from Linux Secret Service (`service=gemini`, `username=antigravity`), with `~/.gemini/antigravity-cli/antigravity-oauth-token` as the file fallback. It refreshes expired access tokens in memory without changing the shared session. Token refresh requires matching OAuth client metadata in the private local config or environment; see [Antigravity setup](docs/troubleshooting.md#antigravity-does-not-appear). Legacy Gemini CLI credentials and its retired Code Assist quota endpoint are not used.
 
@@ -104,12 +106,19 @@ create and install the same versioned archive used for KDE Store releases:
 
 ```bash
 frontend/scripts/package-plasmoid.sh
-kpackagetool6 --type Plasma/Applet --install dist/kodebar-0.1.0.plasmoid
+kpackagetool6 --type Plasma/Applet --install dist/kodebar-0.3.0.plasmoid
 ```
 
 The Plasmoid requires the native backend and reads its
 `~/.cache/kodebar/last.json` Snapshot. See
 [`docs/releasing.md`](./docs/releasing.md) for the release checklist.
+
+## Provider order
+
+Open Configure Kodebar → General → Provider order.
+Select a Provider, use Move up or Move down, then click Apply.
+Kodebar saves the order for its Provider Cards and panel scrolling.
+Disabled Providers retain their positions when enabled again.
 
 ## Milestones
 

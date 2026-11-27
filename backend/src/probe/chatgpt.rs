@@ -85,14 +85,14 @@ impl ChatGptClient for ReqwestChatGptClient {
         access_token: &str,
         account_id: &str,
     ) -> Result<ChatGptUsageResponse, ProbeError> {
-        let response = self
-            .http
-            .get(USAGE_URL)
-            .bearer_auth(access_token)
-            .header("ChatGPT-Account-ID", account_id)
-            .header(reqwest::header::USER_AGENT, USER_AGENT)
-            .send()
-            .map_err(|error| ProbeError::Io(format!("ChatGPT usage request failed: {error}")))?;
+        let response = super::transport::send_read(
+            self.http
+                .get(USAGE_URL)
+                .bearer_auth(access_token)
+                .header("ChatGPT-Account-ID", account_id)
+                .header(reqwest::header::USER_AGENT, USER_AGENT),
+        )
+        .map_err(|error| ProbeError::Io(format!("ChatGPT usage request failed: {error}")))?;
         let status = response.status().as_u16();
         let body = response.text().map_err(|error| {
             ProbeError::Io(format!("failed to read ChatGPT usage response: {error}"))

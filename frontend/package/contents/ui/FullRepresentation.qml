@@ -16,10 +16,11 @@ Item {
     property var snapshot: null
     property string readerError: ""
     property var enabledProviders: ({})
+    property string providerOrder: ""
     property double currentTimeMs: Date.now()
     property bool countdownUpdatesEnabled: true
     property var expandedProviders: ({})
-    readonly property var cards: ProviderCards.cards(root.snapshot, root.currentTimeMs, root.enabledProviders)
+    readonly property var cards: ProviderCards.cards(root.snapshot, root.currentTimeMs, root.enabledProviders, root.providerOrder)
 
     function toggleProviderRows(providerId) {
         const next = Object.assign({}, root.expandedProviders)

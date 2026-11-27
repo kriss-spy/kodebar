@@ -6,10 +6,13 @@
 
 pub mod antigravity;
 pub mod chatgpt;
+pub mod fish_audio;
 pub mod opencode_auth;
 pub mod opencode_dashboard;
 pub mod opencode_go;
 pub mod opencode_zen;
+pub mod transport;
+pub mod x_premium;
 
 /// The common error type for all probes.
 ///

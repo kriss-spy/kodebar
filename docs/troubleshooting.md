@@ -84,7 +84,7 @@ See [PRD §5.2](../PRD.md#52-opencode-go-probe-detail) and
 
 ## Optional OpenCode Zen balance
 
-Zen is the only current OpenCode Probe that uses the browser workspace
+Zen is the OpenCode Probe that uses the browser workspace
 session. If Zen balance is wanted:
 
 1. Sign in at `https://opencode.ai` and open
@@ -111,6 +111,68 @@ again, replace the saved Zen cookie with the new browser-session value, retain
 mode `0600`, and wait until `retryAfter` before checking again. This cookie is
 optional and is unrelated to Go API-key authentication. See
 [PRD §5.3](../PRD.md#53-opencode-zen-probe-detail).
+
+## Fish Audio subscription credits
+
+Run `kodebar login fish-audio` to open Fish Audio authorization in your browser.
+Select the team whose subscription credits you want to track.
+Kodebar uses OAuth with PKCE and a temporary callback bound to `127.0.0.1`.
+The login verifies credit access before saving credentials.
+
+Kodebar stores its own session in
+`${XDG_CONFIG_HOME:-$HOME/.config}/kodebar/fish-audio.json` with mode `0600`.
+It refreshes this session automatically before the access token expires.
+It never reads or changes another MCP client's credentials.
+Run the login command again to select another team or replace a revoked session.
+
+The Probe calls `get_credit_balance` on `https://api.fish.audio/mcp`.
+The Provider Card shows remaining package credits, extra credits, and the package reset date.
+It does not combine those credits with the separate Developer API dollar balance.
+The tool identifies the plan but does not return the account's original allowance.
+For standard Free, Plus, and Pro plans, the bar uses the published monthly allowance
+(8,000, 250,000, and 2,000,000 credits respectively).
+It labels this reference as monthly plan credits and keeps extra credits separate.
+Balances above the plan allowance produce a full bar while the exact count stays visible.
+Unknown plans show the exact credit count without an inferred bar.
+See [Fish Audio plans](https://fish.audio/plan/).
+You can pin Fish Audio in settings or select it by scrolling over the panel.
+It also appears when no quota Provider has data.
+
+## X Premium shared subscription
+
+Kodebar reads the existing Grok CLI login from `~/.grok/auth.json`.
+An absolute `GROK_HOME` overrides that directory.
+The Credential File must have mode `0600`.
+Kodebar never writes or refreshes the shared Grok credentials.
+
+1. If Grok is not signed in, run `grok login`.
+2. Run `kodebar login x-premium` to verify billing access.
+3. Run `kodebar poll` to update the Snapshot.
+
+When the access token expires, sign in with Grok again.
+Kodebar reports an expired token instead of changing the shared session.
+
+The Probe sends the access token to
+`https://cli-chat-proxy.grok.com/v1/billing?format=credits`.
+It uses Bearer authentication and `x-xai-token-auth: xai-grok-cli`.
+Live testing confirmed that this endpoint accepts the existing Grok login.
+The Provider Card shows the published weekly usage and reset countdown.
+Product percentages show shares of the same weekly allowance.
+They are not separate quotas or cash balances.
+Legacy X-only Premium plans are not verified.
+
+The initial dashboard-cookie approach was removed after Cloudflare blocked native requests.
+No browser cookie is needed. Any manually created `kodebar/x-premium.json` file is unused.
+
+## Intermittent connection failures
+
+Provider reads retry transport failures up to three times within a bounded deadline.
+Each attempt allows up to 12 seconds, within the remaining retry budget.
+These retries do not repeat HTTP authentication failures or rate-limit responses.
+Token exchanges are not repeated automatically.
+Provider reads have a 20-second retry budget. Fish Audio uses one stateless MCP credit read with a 35-second retry budget.
+The outer Probe deadline limits the complete poll to 45 seconds.
+If all attempts fail, Kodebar retains the last successful data and applies backoff.
 
 ## Stale data and backoff
 

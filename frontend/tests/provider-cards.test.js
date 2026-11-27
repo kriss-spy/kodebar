@@ -77,6 +77,8 @@ const filteredCards = context.cards({
 }, Date.now(), {
     antigravity: false,
     chatgpt: false,
+    x_premium: false,
+    fish_audio: false,
     opencode_go: true,
     opencode_zen: false,
 });
@@ -88,6 +90,8 @@ assert.equal(context.ageText("not-a-timestamp", Date.now()), "Never");
 const setupCards = context.cards({ _meta: { version: 1 } }, Date.now(), {
     antigravity: false,
     chatgpt: false,
+    x_premium: false,
+    fish_audio: false,
     opencode_go: true,
     opencode_zen: false,
 });
@@ -171,3 +175,39 @@ assert.equal(antigravity.rows[0].resetText, "Resets in 5h");
 assert.equal(antigravity.rows[1].usagePercent, 80);
 assert.equal(antigravity.stale, true);
 assert.equal(context.setupCard("antigravity").actionLabel, "Sign in with agy");
+
+const xCard = context.card("x_premium", {
+    windows: { weekly: { usagePercent: 6.7, resetAt: "2026-12-01T12:48:28Z" } },
+    products: [{ product: "grok-bot", usagePercent: 5.7 }, { product: "grok-chat", usagePercent: 1 }],
+}, Date.parse("2026-11-27T12:48:28Z"));
+assert.equal(xCard.rows.length, 1);
+assert.equal(xCard.rows[0].label, "Weekly");
+assert.equal(xCard.rows[0].usagePercent, 6.7);
+assert.match(xCard.secondaryText, /Grok Bot: 5.7% of weekly allowance/);
+assert.match(xCard.secondaryText, /Chat: 1% of weekly allowance/);
+
+const fish = context.card("fish_audio", { plan: "plus", creditsRemaining: 250555, extraCredits: 1000,
+    teamName: "My Team", resetAt: "2026-12-27T12:00:30Z" }, Date.parse("2026-11-27T12:00:30Z"));
+assert.equal(fish.rows.length, 1);
+assert.equal(fish.rows[0].usagePercent, 0);
+assert.equal(fish.rows[0].statusText, "Balance exceeds plan allowance");
+assert.equal(fish.detailText, "Plus plan · 250555 credits remaining");
+assert.match(fish.secondaryText, /1000 extra credits/);
+assert.equal(context.card("fish_audio", {stale: true}, Date.now()).detailText, "Unavailable");
+
+const plusCredits = { plan: "plus", creditsRemaining: 249622, extraCredits: 1000 };
+assert.ok(Math.abs(context.fishAudioRows(plusCredits, Date.now())[0].usagePercent - 0.1512) < 0.000001);
+assert.equal(context.fishAudioRows({ plan: "custom", creditsRemaining: 10 }, Date.now()).length, 0);
+assert.equal(context.fishAudioRows({ plan: "plus", creditsRemaining: 0 }, Date.now())[0].usagePercent, 100);
+assert.equal(context.fishAudioRows({ ...plusCredits, extraCredits: 2000000 }, Date.now())[0].usagePercent,
+    context.fishAudioRows(plusCredits, Date.now())[0].usagePercent);
+
+const reorderedIds = context.providerIds("chatgpt,fish_audio,chatgpt,unknown");
+assert.equal(reorderedIds[0], "chatgpt");
+assert.equal(reorderedIds[1], "fish_audio");
+assert.equal(reorderedIds.filter(id => id === "chatgpt").length, 1);
+assert.equal(reorderedIds.includes("unknown"), false);
+assert.equal(reorderedIds.includes("x_premium"), true);
+const reorderedCards = context.cards({ chatgpt: {limits: {}}, fish_audio: {creditsRemaining: 1} }, Date.now(), null, "chatgpt,fish_audio");
+assert.equal(reorderedCards[0].providerId, "chatgpt");
+assert.equal(reorderedCards[1].providerId, "fish_audio");

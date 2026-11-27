@@ -17,12 +17,15 @@ PlasmoidItem {
     readonly property var enabledProviders: ({
         "antigravity": Plasmoid.configuration.enabledAntigravity,
         "chatgpt": Plasmoid.configuration.enabledChatGPT,
+        "x_premium": Plasmoid.configuration.enabledXPremium,
+        "fish_audio": Plasmoid.configuration.enabledFishAudio,
         "opencode_go": Plasmoid.configuration.enabledOpenCodeGo,
         "opencode_zen": false
     })
     readonly property var selectionOptions: ({
         "enabledProviders": root.enabledProviders,
-        "compactProvider": Plasmoid.configuration.compactProvider
+        "compactProvider": Plasmoid.configuration.compactProvider,
+        "providerOrder": ProviderCards.providerIds(Plasmoid.configuration.providerOrder)
     })
     readonly property var selectedProvider: snapshotReader.selection
     readonly property string compactText: selectedProvider.providerId ? qsTr("%1 %2").arg(ProviderCards.providerCompactTitle(selectedProvider.providerId)).arg(selectedProvider.value) : qsTr("No quota data")
@@ -213,6 +216,7 @@ PlasmoidItem {
         snapshot: snapshotReader.snapshot
         readerError: snapshotReader.errorMessage
         enabledProviders: root.enabledProviders
+        providerOrder: Plasmoid.configuration.providerOrder
         onRefreshRequested: root.refreshUsage()
         onConfigureRequested: Plasmoid.internalAction("configure").trigger()
         onLoginRequested: providerId => root.startGuidedLogin(providerId)

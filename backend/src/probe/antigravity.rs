@@ -66,7 +66,7 @@ impl ReqwestAntigravityClient {
             "amd64"
         };
         reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(4))
+            .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(format!("antigravity/hub/2.9.1 linux/{arch}"))
             .build()
@@ -122,12 +122,13 @@ impl AntigravityClient for ReqwestAntigravityClient {
 
     fn post(&self, method: &str, token: &str, body: &Value) -> Result<Value, ProbeError> {
         response(
-            self.0
-                .post(format!("{BASE}{method}"))
-                .bearer_auth(token)
-                .json(body)
-                .send()
-                .map_err(|_| ProbeError::Io("Antigravity quota request failed".into()))?,
+            super::transport::send_read(
+                self.0
+                    .post(format!("{BASE}{method}"))
+                    .bearer_auth(token)
+                    .json(body),
+            )
+            .map_err(|_| ProbeError::Io("Antigravity quota request failed".into()))?,
         )
     }
 }

@@ -21,5 +21,10 @@ Implemented per-Provider Cards, reset countdowns, Stale Badges, Antigravity per-
 **M4 — Polish**
 Implemented theme-aware Provider marks in the Compact and Full Representations, Plasma usage-state colors, accessible decorative-icon behavior, wheel navigation between eligible Compact Providers, current Plasma 6 metadata, packaged MIT attribution, a versioned `.plasmoid` release script, isolated archive-install coverage, and a release checklist. Troubleshooting covers guided login, optional Zen cookie expiration, ChatGPT session recovery, D-Bus refresh, and the Antigravity deprecation watch.
 
-**M5 — Provider expansion**
+**M5 — Provider expansion (partially implemented in v0.3.0)**
+Implemented X Premium shared subscription usage through the Grok CLI billing API.
+Implemented Fish Audio subscription credits through a dedicated OAuth session and the native MCP HTTP endpoint.
+Added published-plan credit bars, saved Provider ordering, and bounded transport retries.
+
+Remaining work:
 Add pure API-key providers (z.ai, DeepSeek, etc.) and browser-cookie-based providers (Cursor, etc.) via libsecret/kwallet credential reading. Add `state.vscdb` fallback for Antigravity if `oauth_creds.json` stops being maintained.

@@ -146,15 +146,15 @@ impl DashboardClient for ReqwestDashboardClient {
         page_path: &str,
     ) -> Result<DashboardResponse, ProbeError> {
         let page_path = page_path.trim_start_matches('/');
-        let response = self
-            .http
-            .get(format!("{DASHBOARD_BASE}/{page_path}"))
-            .header(
-                reqwest::header::COOKIE,
-                format!("auth={}", credentials.auth_cookie()),
-            )
-            .send()
-            .map_err(|e| ProbeError::Io(format!("OpenCode dashboard request failed: {e}")))?;
+        let response = super::transport::send_read(
+            self.http
+                .get(format!("{DASHBOARD_BASE}/{page_path}"))
+                .header(
+                    reqwest::header::COOKIE,
+                    format!("auth={}", credentials.auth_cookie()),
+                ),
+        )
+        .map_err(|e| ProbeError::Io(format!("OpenCode dashboard request failed: {e}")))?;
         let status = response.status().as_u16();
         let location = response
             .headers()

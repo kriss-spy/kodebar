@@ -62,12 +62,9 @@ impl ReqwestOpenCodeGoClient {
 
 impl OpenCodeGoClient for ReqwestOpenCodeGoClient {
     fn get_usage(&self, api_key: &str) -> Result<GoApiResponse, ProbeError> {
-        let response = self
-            .http
-            .get(USAGE_URL)
-            .bearer_auth(api_key)
-            .send()
-            .map_err(|error| ProbeError::Io(format!("OpenCode Go request failed: {error}")))?;
+        let response =
+            super::transport::send_read(self.http.get(USAGE_URL).bearer_auth(api_key))
+                .map_err(|error| ProbeError::Io(format!("OpenCode Go request failed: {error}")))?;
         let status = response.status().as_u16();
         let body = response.text().map_err(|error| {
             ProbeError::Io(format!("failed to read OpenCode Go response: {error}"))

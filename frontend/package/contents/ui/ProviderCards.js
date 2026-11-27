@@ -1,6 +1,8 @@
 .pragma library
 
 const PROVIDERS = [
+    { id: "fish_audio", title: qsTr("Fish Audio"), compactTitle: qsTr("Fish"), icon: "../images/provider-fish.svg", setup: qsTr("Run kodebar login fish-audio to connect subscription credits") },
+    { id: "x_premium", title: qsTr("X Premium"), compactTitle: qsTr("X"), icon: "../images/provider-x.svg", setup: qsTr("Sign in with grok login to see your shared subscription") },
     { id: "antigravity", title: qsTr("Antigravity"), compactTitle: qsTr("Antigravity"), icon: "../images/provider-antigravity.svg", setup: qsTr("Sign in with agy to see Antigravity quota") },
     { id: "opencode_go", title: qsTr("OpenCode Go"), compactTitle: qsTr("Go"), icon: "../images/provider-opencode-go.svg", setup: qsTr("Connect your OpenCode account to see Go plan limits") },
     { id: "opencode_zen", title: qsTr("OpenCode Zen"), compactTitle: qsTr("Zen"), icon: "../images/provider-opencode.svg", setup: qsTr("Configure optional OpenCode Zen credentials") },
@@ -171,8 +173,51 @@ function antigravityRows(provider, nowMs) {
     return rows;
 }
 
+function fishAudioRows(provider, nowMs) {
+    // Published standard monthly allowances, not an account-specific usage total.
+    const allowances = { free: 8000, plus: 250000, pro: 2000000 };
+    const allowance = allowances[String(provider.plan || "").toLowerCase()];
+    const remaining = provider.creditsRemaining;
+    if (!allowance || typeof remaining !== "number" || !isFinite(remaining) || remaining < 0
+            || (provider.stale === true && !provider.lastUpdated))
+        return [];
+    return [{
+        label: qsTr("Monthly plan credits"),
+        usagePercent: Math.max(0, Math.min(100, (1 - remaining / allowance) * 100)),
+        resetText: countdown(provider.resetAt, nowMs),
+        statusText: remaining > allowance ? qsTr("Balance exceeds plan allowance")
+            : qsTr("Plan allowance: %1 credits").replace("%1", allowance),
+    }];
+}
+
 function card(providerId, provider, nowMs) {
     const definition = providerDefinition(providerId);
+    if (providerId === "fish_audio") {
+        const available = !(provider.stale === true && !provider.lastUpdated);
+        return {
+            providerId: providerId, title: definition.title, rows: fishAudioRows(provider, nowMs),
+            stale: provider.stale === true, lastUpdated: provider.lastUpdated || "",
+            error: errorText(provider.error),
+            detailText: available ? qsTr("%1 · %2 credits remaining").replace("%1", planName(provider.plan))
+                .replace("%2", provider.creditsRemaining) : qsTr("Unavailable"),
+            secondaryText: available ? qsTr("%1 · %2 extra credits · %3").replace("%1", provider.teamName)
+                .replace("%2", provider.extraCredits).replace("%3", countdown(provider.resetAt, nowMs)) : "",
+            connected: available && !isAuthenticationError(provider.error), actionLabel: "",
+        };
+    }
+    if (providerId === "x_premium") {
+        const labels = { "grok-bot": qsTr("Grok Bot"), "grok-chat": qsTr("Chat"), "cursor": qsTr("Cursor") };
+        const breakdown = (provider.products || []).map(function(product) {
+            return qsTr("%1: %2% of weekly allowance").replace("%1", labels[product.product] || product.product)
+                .replace("%2", (Math.round(product.usagePercent * 10) / 10).toString());
+        }).join(" · ");
+        return {
+            providerId: providerId, title: definition.title, rows: goRows(provider, nowMs),
+            stale: provider.stale === true, lastUpdated: provider.lastUpdated || "",
+            error: errorText(provider.error), detailText: qsTr("Shared weekly allowance"),
+            secondaryText: breakdown, connected: !isAuthenticationError(provider.error), actionLabel: "",
+        };
+    }
     if (providerId === "antigravity") {
         return {
             providerId: providerId,
@@ -253,12 +298,22 @@ function setupCard(providerId) {
     };
 }
 
-function cards(snapshot, nowMs, enabledProviders) {
+function providerIds(savedOrder) {
+    const defaults = PROVIDERS.map(function(provider) { return provider.id; });
+    const saved = typeof savedOrder === "string" ? savedOrder.split(",") : [];
+    const ordered = [];
+    saved.concat(defaults).forEach(function(providerId) {
+        providerId = providerId.trim();
+        if (defaults.indexOf(providerId) !== -1 && ordered.indexOf(providerId) === -1)
+            ordered.push(providerId);
+    });
+    return ordered;
+}
+
+function cards(snapshot, nowMs, enabledProviders, savedOrder) {
     if (!snapshot || typeof snapshot !== "object")
         snapshot = {};
-    return PROVIDERS.map(function(provider) {
-        return provider.id;
-    }).filter(function(providerId) {
+    return providerIds(savedOrder).filter(function(providerId) {
         if (enabledProviders)
             return enabledProviders[providerId] !== false;
         return snapshot[providerId] !== undefined;

@@ -65,14 +65,31 @@ function providerSelection(providerId, provider, usage) {
     };
 }
 
+function creditSelection(providerId, provider) {
+    if (providerId !== "fish_audio" || !provider || provider.type !== "credit-balance"
+            || (provider.stale === true && !provider.lastUpdated)
+            || typeof provider.creditsRemaining !== "number" || !isFinite(provider.creditsRemaining)
+            || provider.creditsRemaining < 0)
+        return null;
+    return { providerId: providerId, value: provider.creditsRemaining + " credits",
+        usage: null, stale: provider.stale === true };
+}
+
 function eligibleProviderIds(snapshot, options) {
     const providers = providerMap(snapshot);
     const enabledProviders = options && options.enabledProviders;
     return Object.keys(providers).filter(function(providerId) {
         return providerId !== "_meta"
             && (!enabledProviders || enabledProviders[providerId] !== false)
-            && quotaUsage(providers[providerId]) !== null;
-    }).sort();
+            && (quotaUsage(providers[providerId]) !== null || creditSelection(providerId, providers[providerId]) !== null);
+    }).sort(function(left, right) {
+        const order = options && options.providerOrder || [];
+        const leftIndex = order.indexOf(left);
+        const rightIndex = order.indexOf(right);
+        const leftRank = leftIndex < 0 ? order.length : leftIndex;
+        const rightRank = rightIndex < 0 ? order.length : rightIndex;
+        return leftRank - rightRank || left.localeCompare(right);
+    });
 }
 
 function cycleProviderId(snapshot, options, currentProviderId, direction) {
@@ -100,10 +117,16 @@ function selectProvider(snapshot, options, compactProviderOverride) {
     let selected = null;
     let zenFallback = null;
     let pinned = null;
+    let creditFallback = null;
 
     providerIds.forEach(function(providerId) {
         const provider = providers[providerId];
         const usage = quotaUsage(provider);
+        const credit = creditSelection(providerId, provider);
+        if (credit) {
+            creditFallback = credit;
+            if (providerId === compactProvider) pinned = credit;
+        }
         if (usage !== null && (!selected || usage > selected.usage)) {
             selected = providerSelection(providerId, provider, usage);
         }
@@ -127,10 +150,11 @@ function selectProvider(snapshot, options, compactProviderOverride) {
 
     if (eligibleIds.indexOf(compactProviderOverride) !== -1) {
         const provider = providers[compactProviderOverride];
-        return providerSelection(compactProviderOverride, provider, quotaUsage(provider));
+        return creditSelection(compactProviderOverride, provider)
+            || providerSelection(compactProviderOverride, provider, quotaUsage(provider));
     }
 
-    return pinned || selected || zenFallback || {
+    return pinned || selected || creditFallback || zenFallback || {
         providerId: "",
         value: "",
         usage: null,
